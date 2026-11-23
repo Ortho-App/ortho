@@ -114,11 +114,36 @@ const STATUSES = {
   waiting:    {label:"Waiting",    color:"var(--c-waiting)",    date:"Since",            note:"", hidden:true}
 };
 const PICK = Object.keys(STATUSES).filter(k=>!STATUSES[k].hidden);
-const CATS = {skin:"Skin / wound", xray_old:"X-ray — Old", xray_new:"X-ray — New", ct_old:"CT — Old", ct_new:"CT — New",
-  xray:"X-ray / CT", ticket:"Ticket / papers", other:"Other"};
-const CAT_ORDER = ["skin","xray_old","xray_new","ct_old","ct_new","xray","ticket","other"];
-const CAT_SHORT = {skin:"Skin", xray_old:"X-ray old", xray_new:"X-ray new", ct_old:"CT old", ct_new:"CT new", xray:"Imaging", ticket:"Ticket", other:"Other"};
-const ADD_BTNS = [["skin","Skin"],["xray","X-ray",1],["ct","CT",1],["ticket","Ticket"],["other","Other"]];
+/* Photo groups. Each base (except ticket) has Old / New.
+   "New" = the latest day that New files were added; earlier New files show as Old automatically. */
+const BASES = {skin:["Skin",1], xray:["X-ray",1], ct:["CT",1], labs:["Labs",1], ticket:["Ticket",0], imaging:["X-ray / CT",0]};
+const BASE_ORDER = ["skin","xray","ct","labs","ticket","imaging"];
+function parseCat(c){c=String(c||"");if(c.includes("_")){const [b,a]=c.split("_");return{base:b,age:a}}
+  if(c==="other")return{base:"labs",age:"new"};if(c==="xray")return{base:"imaging",age:""};
+  if(c==="skin")return{base:"skin",age:"new"};return{base:c||"labs",age:BASES[c]&&BASES[c][1]?"new":""}}
+function catLabel(c){const {base,age}=parseCat(c);return (BASES[base]?BASES[base][0]:base)+(age?" "+age:"")}
+/* groups for a patient, display order: New first, then Old by date (newest first) */
+function mediaGroups(p){
+  const mc=p.mediaCat||{}, ov=p.mediaAge||{}, out=[];
+  const all=media.filter(m=>m.patientId===p.id).map(m=>mc[m.id]?Object.assign({},m,{cat:mc[m.id].cat,date:mc[m.id].date||m.date}):m);
+  for(const base of BASE_ORDER){
+    const items=all.filter(m=>parseCat(m.cat).base===base).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));if(!items.length)continue;
+    if(!BASES[base][1]){out.push({base,age:"",label:BASES[base][0]+(base==="imaging"?" (earlier uploads)":""),items});continue}
+    const tag=m=>ov[m.id]?ov[m.id].age:parseCat(m.cat).age, eff=m=>ov[m.id]&&ov[m.id].age==="new"?ov[m.id].at:m.date;
+    const newDate=items.filter(m=>tag(m)==="new").map(eff).sort().pop();
+    const isNew=m=>tag(m)==="new"&&eff(m)===newDate;
+    const nw=items.filter(isNew);
+    if(nw.length)out.push({base,age:"new",date:newDate,label:`${BASES[base][0]} — New · ${fmt(newDate)}`,items:nw});
+    const old=items.filter(m=>!isNew(m)),dates=[...new Set(old.map(m=>m.date))].sort().reverse();
+    dates.forEach(d=>out.push({base,age:"old",date:d,label:`${BASES[base][0]} — Old · ${fmt(d)}`,items:old.filter(m=>m.date===d)}));
+  }
+  return out;
+}
+function mediaOf(pid){const p=patients.find(x=>x.id===pid)||{id:pid};return mediaGroups(p).flatMap(g=>g.items)}
+/* sending order: per section, oldest first then new */
+function shareGroups(p){const g=mediaGroups(p),out=[];for(const base of BASE_ORDER){const gs=g.filter(x=>x.base===base);
+  out.push(...gs.filter(x=>x.age==="old").reverse(),...gs.filter(x=>x.age!=="old"))}return out}
+const ADD_BTNS = [["skin","Skin",1],["xray","X-ray",1],["ct","CT",1],["labs","Labs",1],["ticket","Ticket"]];
 const addButtons = (type) => `<div class="addrow">${ADD_BTNS.map(([k,l,ask])=>`<button ${type?'type="button"':""} class="btn addcat" data-cat="${k}" data-ask="${ask?1:""}">📷 + ${l}</button>`).join("")}</div>`;
 /* Learned suggestions: seeds + everything typed before */
 const SEEDS = {mot:["RTA","FFH","FOG","Assault","Sports injury"], vitals:["Stable","Unstable"], nv:["Intact"],
@@ -161,7 +186,6 @@ function admissionNo(p,upto){let n=0;for(const h of sortedHist(p)){if(h.status==
 function sortedHist(p){return [...(p.history||[])].map((h,i)=>Object.assign({_i:i},h)).sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.at||0)-(b.at||0)||a._i-b._i)}
 function ord(n){return n+(n%100>=11&&n%100<=13?"th":["th","st","nd","rd"][n%10]||"th")}
 function readmits(p){return (p.history||[]).filter(h=>h.status==="readmitted"||h.status==="admitted").length}
-function mediaOf(pid){return media.filter(m=>m.patientId===pid).sort((a,b)=>CAT_ORDER.indexOf(a.cat)-CAT_ORDER.indexOf(b.cat)||a.createdAt-b.createdAt)}
 function mb(n){return (n/1048576).toFixed(n<10485760?1:0)+" MB"}
 
 function loadCfg(){try{return JSON.parse(localStorage.getItem("ortho_cfg")||"null")}catch(e){return null}}
@@ -341,8 +365,8 @@ function renderDetail(id){
   const s=st(p.status),d=dueInfo(p),ms=mediaOf(p.id);
   const row=(k,v)=>v?`<div class="k">${k}</div><div class="v">${esc(v)}</div>`:"";
   let ph="";
-  for(const k of CAT_ORDER){const g=ms.filter(m=>m.cat===k);if(!g.length)continue;
-    ph+=`<div class="pgroup"><div class="gt">${CATS[k]} (${g.length})</div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
+  for(const G of mediaGroups(p)){const g=G.items;
+    ph+=`<div class="pgroup"><div class="gt" style="${G.age==="new"?"color:var(--navy2)":""}">${esc(G.label)} (${g.length})</div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
   if(!ph) ph=`<div class="small">No photos or videos yet.</div>`;
   const hist=sortedHist(p);
   main.innerHTML=`
@@ -420,20 +444,19 @@ function summary(p){
   return L.join("\n");
 }
 
-function shareKey(p){return p.id+"|"+mediaOf(p.id).map(m=>m.id).join(",")}
+function shareKey(p){return p.id+"|"+mediaOf(p.id).map(m=>m.id).join(",")+"|"+JSON.stringify(p.mediaAge||{})}
 async function prepareShare(p){
   const key=shareKey(p);
   if(share.key===key&&(share.files||share.busy))return;
-  const ms=mediaOf(p.id);
+  const groups=shareGroups(p),ms=groups.flatMap(g=>g.items.map(m=>({m,g})));
   share={key,files:null,busy:true,done:0,total:ms.length};
   if(!ms.length){share.files=[];share.busy=false;updateShareState(p);return}
-  const files=[];const counter={};
+  const files=[];
   try{
-    for(const m of ms){
+    for(const {m,g} of ms){
       const b=await getBlob(m); if(share.key!==key)return;
-      counter[m.cat]=(counter[m.cat]||0)+1;
       const ext=(b.type||m.mime||"").includes("mp4")?"mp4":(b.type||m.mime||"").includes("webm")?"webm":(m.kind==="video"?"mp4":"jpg");
-      const nm=`${files.length+1} - ${CAT_SHORT[m.cat]||"File"} ${counter[m.cat]}.${ext}`;
+      const nm=`${files.length+1} - ${BASES[g.base][0].replace(/[\/ ]+/g,"-")}${g.age?" "+g.age:""}${g.date?" "+fmt(g.date).replace(/\//g,"-"):""}.${ext}`;
       files.push(new File([b],nm,{type:b.type||m.mime}));
       share.done++; updateShareState(p);
     }
@@ -445,7 +468,7 @@ function updateShareState(p){
   const el=$("#wastate"),btn=$("#wa"); if(!el||route().id!==p.id||share.key!==shareKey(p))return;
   if(share.busy){btn.disabled=true;btn.textContent=`Preparing photos… ${share.done}/${share.total}`;el.textContent="Getting files ready so one tap sends everything.";}
   else{btn.disabled=false;btn.textContent="Send on WhatsApp";
-    el.textContent=share.err?"Some files couldn't be loaded — tap to send the text, or try again.":(share.total?`Sends the summary + ${share.total} file${share.total>1?"s":""} in order: skin → X-ray/CT → ticket.`:"Sends the summary.");}
+    el.textContent=share.err?"Some files couldn't be loaded — tap to send the text, or try again.":(share.total?`Sends the summary + ${share.total} file${share.total>1?"s":""} in order: skin → X-ray → CT → labs → ticket (old before new).`:"Sends the summary.");}
 }
 async function sendWhatsApp(p){
   const text=summary(p);
@@ -496,7 +519,7 @@ function renderForm(id){
   <button class="btn pri full" type="submit" id="save">${p?"Save changes":"Save patient"}</button></form>`;
   attachLearn($("#f"));
   if(!p){ statusFields($("#stbox"),{status:"admitted",date:today()});
-    const showPicked=()=>{$("#picked").textContent=pending.length?CAT_ORDER.map(k=>{const n=pending.filter(x=>x.cat===k).length;return n?`${CAT_SHORT[k]}: ${n}`:""}).filter(Boolean).join(" · ")+"  ✓":""};
+    const showPicked=()=>{const c={};pending.forEach(x=>{const l=catLabel(x.cat);c[l]=(c[l]||0)+1});$("#picked").textContent=pending.length?Object.entries(c).map(([l,n])=>`${l}: ${n}`).join(" · ")+"  ✓":""};
     document.querySelectorAll("#f .addcat").forEach(b=>b.onclick=()=>chooseCat(b,cat=>pickFiles(files=>{pending=pending.concat(files.map(f=>({file:f,cat})));showPicked()}))); }
   $("#f").onsubmit=async e=>{
     e.preventDefault();const fd=new FormData(e.target);const o={};
@@ -628,8 +651,8 @@ async function deletePatient(p){
 /* ================= upload + compression ================= */
 function chooseCat(btn,cb){
   if(!btn.dataset.ask){cb(btn.dataset.cat);return}
-  const k=btn.dataset.cat,l=k==="ct"?"CT":"X-ray";
-  const b=modal(`<h3>${l} — old or new?</h3><div class="actions">
+  const k=btn.dataset.cat,l=BASES[k][0];
+  const b=modal(`<h3>${l} — old or new?</h3><div class="hint">New moves the earlier "new" ${l} to Old automatically.</div><div class="actions">
     <button type="button" class="btn full" id="o">Old ${l}</button><button type="button" class="btn pri full" id="n">New ${l}</button>
     <button type="button" class="btn full" id="c">Cancel</button></div>`);
   b.querySelector("#o").onclick=()=>{closeModal();cb(k+"_old")};
@@ -661,7 +684,7 @@ async function uploadFiles(p,items){
       saved+=Math.max(0,f.size-r.blob.size);
       msg(`Uploading ${tag} (${mb(r.blob.size)})…`);part(.85);
       const m=await api("upload",{patientId:p.id,patientName:p.name,cat,kind:r.kind,mime:r.blob.type,
-        name:`${CAT_SHORT[cat]} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
+        name:`${catLabel(cat)} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
       media.push(m);thumbs[m.id]=r.thumb||"";ok++;
       try{const c=await mediaCache();if(c)await c.put("/__media/"+m.fileId,new Response(r.blob))}catch(_){}
       part(1);
@@ -714,20 +737,36 @@ async function compressVideo(file,onp){
 
 /* ================= viewer ================= */
 function viewer(p,mid){
-  const ms=mediaOf(p.id);let i=Math.max(0,ms.findIndex(m=>m.id===mid));const l=$("#layer");let objUrl=null;
+  const gl=mediaGroups(p).flatMap(g=>g.items.map(m=>({m,g})));const ms=gl.map(x=>x.m);
+  let i=Math.max(0,ms.findIndex(m=>m.id===mid));const l=$("#layer");let objUrl=null;
   async function draw(){
     const m=ms[i];if(!m){l.innerHTML="";return}
     if(objUrl){URL.revokeObjectURL(objUrl);objUrl=null}
-    l.innerHTML=`<div class="viewer"><div class="vb"><button id="vc">✕ Close</button><span>${esc(CATS[m.cat]||"")} · ${fmt(m.date)} · ${i+1}/${ms.length}</span><button id="vd">Delete</button></div>
+    l.innerHTML=`<div class="viewer"><div class="vb"><button id="vc">✕ Close</button><span>${esc(gl[i].g.label)} · ${i+1}/${ms.length}</span><span><button id="vs">Section</button> <button id="vd">Delete</button></span></div>
     <div class="media" id="vm">Loading…</div>
-    <div class="vb"><button id="vp" ${i===0?"disabled":""}>‹ Prev</button><span>${m.by?esc(m.by):""}${m.size?" · "+mb(m.size):""}</span><button id="vn" ${i>=ms.length-1?"disabled":""}>Next ›</button></div></div>`;
+    <div class="vb"><button id="vp" ${i===0?"disabled":""}>‹ Prev</button><span>${gl[i].g.age?`<button id="vmv">Move to ${gl[i].g.age==="new"?"Old":"New"}</button>`:""} ${m.by?esc(m.by):""}${m.size?" · "+mb(m.size):""}</span><button id="vn" ${i>=ms.length-1?"disabled":""}>Next ›</button></div></div>`;
     l.querySelector("#vc").onclick=()=>{if(objUrl)URL.revokeObjectURL(objUrl);l.innerHTML=""};
     l.querySelector("#vp").onclick=()=>{if(i>0){i--;draw()}};
     l.querySelector("#vn").onclick=()=>{if(i<ms.length-1){i++;draw()}};
+    l.querySelector("#vs").onclick=()=>{
+      const opts=ADD_BTNS.flatMap(([k,lab,ask])=>ask?[[k+"_new",lab+" — New"],[k+"_old",lab+" — Old"]]:[[k,lab]]);
+      const b=modal(`<h3>Move to section</h3><div class="addrow">${opts.map(([c,lab])=>`<button type="button" class="btn" data-c="${c}">${lab}</button>`).join("")}</div>
+        <label class="f">Date (for Old)</label><input class="inp" type="date" id="sd" value="${esc(m.date||today())}">
+        <div class="actions"><button type="button" class="btn full" id="sc">Cancel</button></div>`);
+      b.querySelector("#sc").onclick=()=>draw();
+      b.querySelectorAll("[data-c]").forEach(x=>x.onclick=async()=>{
+        const cur=patients.find(y=>y.id===p.id)||p;const mcat=Object.assign({},cur.mediaCat||{});const ma=Object.assign({},cur.mediaAge||{});
+        const c=x.dataset.c;mcat[m.id]={cat:c,date:c.endsWith("_old")?(b.querySelector("#sd").value||m.date):(c.endsWith("_new")?today():m.date)};delete ma[m.id];
+        try{await savePatient(Object.assign({},cur,{mediaCat:mcat,mediaAge:ma}));closeModal();toast("Moved");render()}catch(err){toast(err.message)}});
+    };
+    const mv=l.querySelector("#vmv");if(mv)mv.onclick=async()=>{
+      const cur=patients.find(x=>x.id===p.id)||p;const ma=Object.assign({},cur.mediaAge||{});
+      ma[m.id]={age:gl[i].g.age==="new"?"old":"new",at:today()};
+      try{await savePatient(Object.assign({},cur,{mediaAge:ma}));l.innerHTML="";toast("Moved");render()}catch(err){toast(err.message)}};
     l.querySelector("#vd").onclick=async()=>{
       if(!await confirmBox("Delete this file?","It will be removed for everyone.","Delete"))return draw();
       try{await api("deleteMedia",{id:m.id});media=media.filter(x=>x.id!==m.id);toast("Deleted");render()}catch(err){toast(err.message)}};
-    try{const b=await getBlob(m);if(ms[i]!==m||!l.querySelector("#vm"))return;objUrl=URL.createObjectURL(b);
+    try{const b=await getBlob(m);if(!ms[i]||ms[i].id!==m.id||!l.querySelector("#vm"))return;objUrl=URL.createObjectURL(b);
       l.querySelector("#vm").innerHTML=m.kind==="video"?`<video src="${objUrl}" controls playsinline autoplay></video>`:`<img src="${objUrl}" alt="">`;
     }catch(err){const e=l.querySelector("#vm");if(e)e.textContent="Couldn't load: "+err.message}
   }
