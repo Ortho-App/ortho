@@ -90,6 +90,11 @@ textarea.inp{min-height:64px;resize:vertical}
 .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#1a202c;color:#fff;padding:10px 16px;border-radius:10px;z-index:40;font-size:14px;max-width:90vw;text-align:center}
 .notice{background:#fffaf0;border:1px solid #fbd38d;color:#7b341e;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0}
 .small{font-size:12px;color:var(--muted)}
+.sugg{display:none;flex-wrap:wrap;gap:6px;margin-top:6px}
+.sugg button{border:1px solid #bee3f8;background:#ebf8ff;color:#2a4365;border-radius:999px;padding:6px 10px;font-size:13px;cursor:pointer}
+.addrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.addrow .btn{background:#ebf4ff;color:var(--navy2);border:1px dashed #90cdf4;padding:12px 8px}
+.picked{font-size:13px;margin-top:8px;color:var(--text)}
 .prog{height:6px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:6px}
 .prog div{height:100%;background:var(--navy2);width:0}
 </style>
@@ -102,14 +107,26 @@ textarea.inp{min-height:64px;resize:vertical}
 <script>
 /* ================= constants ================= */
 const STATUSES = {
-  admitted:   {label:"Admitted",   color:"var(--c-admitted)",   date:"Admission date",  note:"What is delaying surgery / waiting for?", due:"Planned surgery date"},
-  operated:   {label:"Operated",   color:"var(--c-operated)",   date:"Surgery date",    note:"Operation done / post-op notes",          due:"Expected discharge"},
-  discharged: {label:"Discharged", color:"var(--c-discharged)", date:"Discharge date",  note:"Condition at discharge / follow-up plan",   due:"Next follow-up"},
-  waiting:    {label:"Waiting",    color:"var(--c-waiting)",    date:"Waiting since",   note:"Waiting for what? (e.g. plate removal after 1 year)", due:"Target date"},
-  readmitted: {label:"Readmitted", color:"var(--c-readmitted)", date:"Readmission date",note:"Reason (removal, debridement, infection…)", due:"Planned surgery date"}
+  admitted:   {label:"Admitted",   color:"var(--c-admitted)",   date:"Admission date",   note:"Notes (e.g. what is delaying surgery)"},
+  operated:   {label:"Operated",   color:"var(--c-operated)",   date:"Surgery date",     note:"What was done (e.g. Ex Fx, ORIF with P&S)"},
+  discharged: {label:"Discharged", color:"var(--c-discharged)", date:"Discharge date",   note:"Condition at discharge"},
+  readmitted: {label:"Readmitted", color:"var(--c-readmitted)", date:"Readmission date", note:"Reason (Ex Fx removal, debridement, fixation…)"},
+  waiting:    {label:"Waiting",    color:"var(--c-waiting)",    date:"Since",            note:"", hidden:true}
 };
-const CATS = {skin:"Skin / wound", xray:"X-ray / CT / imaging", ticket:"Ticket / papers", other:"Other"};
-const CAT_ORDER = ["skin","xray","ticket","other"];
+const PICK = Object.keys(STATUSES).filter(k=>!STATUSES[k].hidden);
+const CATS = {skin:"Skin / wound", xray_old:"X-ray — Old", xray_new:"X-ray — New", ct_old:"CT — Old", ct_new:"CT — New",
+  xray:"X-ray / CT", ticket:"Ticket / papers", other:"Other"};
+const CAT_ORDER = ["skin","xray_old","xray_new","ct_old","ct_new","xray","ticket","other"];
+const CAT_SHORT = {skin:"Skin", xray_old:"X-ray old", xray_new:"X-ray new", ct_old:"CT old", ct_new:"CT new", xray:"Imaging", ticket:"Ticket", other:"Other"};
+const ADD_BTNS = [["skin","Skin"],["xray","X-ray",1],["ct","CT",1],["ticket","Ticket"],["other","Other"]];
+const addButtons = (type) => `<div class="addrow">${ADD_BTNS.map(([k,l,ask])=>`<button ${type?'type="button"':""} class="btn addcat" data-cat="${k}" data-ask="${ask?1:""}">📷 + ${l}</button>`).join("")}</div>`;
+/* Learned suggestions: seeds + everything typed before */
+const SEEDS = {mot:["RTA","FFH","FOG","Assault","Sports injury"], vitals:["Stable","Unstable"], nv:["Intact"],
+  medHx:["Free","DM","HTN"], surgHx:["Free"], gs:["Free"], ns:["Free"],
+  procedure:["ORIF with plate & screws","CRIF with K-wires","Ex Fx","Debridement","Removal of plate & screws","IM nail"]};
+const LINE_FIELDS = {diagnosis:1, procedure:1, note:1, medHx:1, surgHx:1};
+const FIELDS = ["name","age","sex","fileNo","phone","consultant","mot","vitals","diagnosis","nv","medHx","surgHx","gs","ns","procedure","notes"];
+const DEFAULTS = {vitals:"Stable", nv:"Intact", medHx:"Free", surgHx:"Free", gs:"Free", ns:"Free"};
 
 /* Compression settings — as small as possible while X-rays stay readable */
 const IMG_MAX = 1400, IMG_Q = 0.7;          // photos
@@ -133,12 +150,17 @@ function daysTo(d){if(!d)return null;return Math.round((new Date(d+"T00:00:00")-
 function newId(){return "p"+Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 function toast(m,ms){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),ms||2800)}
 function st(c){return STATUSES[c]||{label:c||"—",color:"#718096",date:"Date",note:"Notes",due:"Due date"}}
-function dueInfo(p){const n=daysTo(p.dueDate);if(n===null)return null;const L=st(p.status).due;
-  if(n<0)return{cls:"over",txt:`${L}: ${fmt(p.dueDate)} — overdue ${-n}d`};
-  if(n===0)return{cls:"over",txt:`${L}: today`};
-  if(n<=7)return{cls:"soon",txt:`${L}: ${fmt(p.dueDate)} — in ${n}d`};
-  return{cls:"",txt:`${L}: ${fmt(p.dueDate)}`}}
-function readmits(p){return (p.history||[]).filter(h=>h.status==="readmitted").length}
+function nextDateOf(p){return p.nextDate||(p.nextStep===undefined?p.dueDate:"")||""}
+function nextStepOf(p){return p.nextStep!==undefined?p.nextStep:(p.status==="waiting"?p.statusNote:"")||""}
+function dueInfo(p){const dt=nextDateOf(p),n=daysTo(dt);if(n===null)return null;
+  if(n<0)return{cls:"over",txt:`${fmt(dt)} — overdue ${-n}d`};
+  if(n===0)return{cls:"over",txt:`today`};
+  if(n<=7)return{cls:"soon",txt:`${fmt(dt)} — in ${n}d`};
+  return{cls:"",txt:fmt(dt)}}
+function admissionNo(p,upto){let n=0;for(const h of sortedHist(p)){if(h.status==="admitted"||h.status==="readmitted")n++;if(h._i===upto._i)break}return n}
+function sortedHist(p){return [...(p.history||[])].map((h,i)=>Object.assign({_i:i},h)).sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.at||0)-(b.at||0)||a._i-b._i)}
+function ord(n){return n+(n%100>=11&&n%100<=13?"th":["th","st","nd","rd"][n%10]||"th")}
+function readmits(p){return (p.history||[]).filter(h=>h.status==="readmitted"||h.status==="admitted").length}
 function mediaOf(pid){return media.filter(m=>m.patientId===pid).sort((a,b)=>CAT_ORDER.indexOf(a.cat)-CAT_ORDER.indexOf(b.cat)||a.createdAt-b.createdAt)}
 function mb(n){return (n/1048576).toFixed(n<10485760?1:0)+" MB"}
 
@@ -270,17 +292,19 @@ function renderList(){
   const consultants=[...new Set(patients.map(p=>(p.consultant||"").trim()).filter(Boolean))].sort();
   const q=filter.q.trim().toLowerCase();
   const list=patients.filter(p=>{
-    if(filter.status==="due"){const n=daysTo(p.dueDate);if(n===null||n>7)return false}
+    if(filter.status==="due"){const n=daysTo(nextDateOf(p));if(n===null||n>7)return false}
+    else if(filter.status==="wait"){if(!nextStepOf(p)&&!nextDateOf(p))return false}
     else if(filter.status!=="all"&&p.status!==filter.status)return false;
     if(filter.consultant&&(p.consultant||"").trim()!==filter.consultant)return false;
-    if(q&&![p.name,p.diagnosis,p.procedure,p.fileNo,p.phone,p.consultant,p.statusNote].join(" ").toLowerCase().includes(q))return false;
+    if(q&&![p.name,p.diagnosis,p.mot,p.procedure,p.fileNo,p.phone,p.consultant,p.statusNote].join(" ").toLowerCase().includes(q))return false;
     return true;
-  }).sort((a,b)=>{const da=a.dueDate||"9999",dbb=b.dueDate||"9999";if(da!==dbb)return da<dbb?-1:1;return(b.updatedAt||0)-(a.updatedAt||0)});
-  const cnt={all:patients.length,due:patients.filter(p=>{const n=daysTo(p.dueDate);return n!==null&&n<=7}).length};
-  Object.keys(STATUSES).forEach(k=>cnt[k]=patients.filter(p=>p.status===k).length);
+  }).sort((a,b)=>{const da=nextDateOf(a)||"9999",dbb=nextDateOf(b)||"9999";if(da!==dbb)return da<dbb?-1:1;return(b.updatedAt||0)-(a.updatedAt||0)});
+  const cnt={all:patients.length,due:patients.filter(p=>{const n=daysTo(nextDateOf(p));return n!==null&&n<=7}).length,
+    wait:patients.filter(p=>nextStepOf(p)||nextDateOf(p)).length};
+  PICK.forEach(k=>cnt[k]=patients.filter(p=>p.status===k).length);
   const chip=(k,l)=>`<button class="chip ${filter.status===k?"on":""}" data-s="${k}">${l} (${cnt[k]||0})</button>`;
   let h=`${loadErr?`<div class="notice">${esc(loadErr)}</div>`:""}
-  <div class="chips">${chip("all","All")}${chip("due","⏰ Due ≤7d")}${Object.entries(STATUSES).map(([k,s])=>chip(k,s.label)).join("")}</div>
+  <div class="chips">${chip("all","All")}${chip("due","⏰ Due ≤7d")}${chip("wait","⏳ Waiting")}${PICK.map(k=>chip(k,STATUSES[k].label)).join("")}</div>
   <div class="row2"><select id="cons"><option value="">All consultants</option>${consultants.map(c=>`<option ${filter.consultant===c?"selected":""}>${esc(c)}</option>`).join("")}</select>
   <span class="count">${list.length} shown</span></div>`;
   if(!list.length) h+=`<div class="empty">${patients.length?"No patients match.":"No patients yet.<br>Tap “+ New patient” to add the first one."}</div>`;
@@ -288,11 +312,11 @@ function renderList(){
     const s=st(p.status),d=dueInfo(p),rc=readmits(p),nm=mediaOf(p.id).length;
     h+=`<div class="card" data-id="${esc(p.id)}" style="border-left-color:${s.color}">
       <div class="top"><div><div class="name">${esc(p.name||"(no name)")}</div>
-      <div class="dx">${esc([p.age?p.age+"y":"",p.diagnosis].filter(Boolean).join(" · "))}</div></div>
+      <div class="dx">${esc([p.age?p.age+" سنة":"",(p.diagnosis||"").split("\n")[0]].filter(Boolean).join(" · "))}</div></div>
       <div style="text-align:right"><span class="badge" style="background:${s.color}">${esc(s.label)}</span>
-      <div class="small">${fmt(p.statusDate)}${rc>1?` · ×${rc}`:""}${nm?` · 📷${nm}`:""}</div></div></div>
-      ${p.statusNote?`<div class="note">${esc(p.statusNote)}</div>`:""}
-      ${d?`<div class="due ${d.cls}">${esc(d.txt)}</div>`:""}</div>`;
+      <div class="small">${fmt(p.statusDate)}${rc>1?` · ${ord(rc)} adm.`:""}${nm?` · 📷${nm}`:""}</div></div></div>
+      ${p.status!=="waiting"&&p.statusNote?`<div class="note">${esc(p.statusNote)}</div>`:""}
+      ${nextStepOf(p)||d?`<div class="due ${d?d.cls:""}">⏳ ${esc(nextStepOf(p)||"Waiting")}${d?" — "+esc(d.txt):""}</div>`:""}</div>`;
   }
   main.innerHTML=h;
   main.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{filter.status=b.dataset.s;renderList()});
@@ -320,27 +344,30 @@ function renderDetail(id){
   for(const k of CAT_ORDER){const g=ms.filter(m=>m.cat===k);if(!g.length)continue;
     ph+=`<div class="pgroup"><div class="gt">${CATS[k]} (${g.length})</div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
   if(!ph) ph=`<div class="small">No photos or videos yet.</div>`;
-  const hist=[...(p.history||[])].map((h,i)=>({...h,_i:i})).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);
+  const hist=sortedHist(p);
   main.innerHTML=`
   <div class="sec"><h2>1 · Patient data <button id="edit">Edit</button></h2><div class="in"><div class="kv">
-    ${row("Age / Sex",[p.age?p.age+" y":"",p.sex].filter(Boolean).join(" · "))}
+    ${row("Age / Sex",[p.age?p.age+" سنة":"",p.sex].filter(Boolean).join(" · "))}
     ${row("File no.",p.fileNo)}${row("Phone",p.phone)}${row("Consultant",p.consultant)}
-    ${row("Diagnosis",p.diagnosis)}${row("Procedure(s)",p.procedure)}
-    ${row("Medical Hx",p.medHx)}${row("Surgical Hx",p.surgHx)}${row("Notes",p.notes)}
+    ${row("MOT",p.mot)}${row("Vitally",p.vitals)}${row("Fractures",p.diagnosis)}${row("NeuroVascular",p.nv)}
+    ${row("Medical Hx",p.medHx)}${row("Surgical Hx",p.surgHx)}${row("General Surgery",p.gs)}${row("Neurosurgery",p.ns)}
+    ${row("Procedure(s)",p.procedure)}${row("Notes",p.notes)}
   </div></div></div>
-  <div class="sec"><h2>2 · Photos & videos <button id="addph">+ Add</button></h2><div class="in">${ph}</div></div>
-  <div class="sec"><h2>3 · Condition <button id="chst">Change</button></h2><div class="in">
+  <div class="sec"><h2>2 · Photos & videos</h2><div class="in">${ph}
+    ${addButtons(false)}
+    <div class="hint">Camera or gallery, several at once. X-ray and CT ask old or new. Photos and videos are compressed automatically.</div></div></div>
+  <div class="sec"><h2>3 · Course <button id="chst">+ Add step</button></h2><div class="in">
     <div class="status-now" style="background:${s.color}">
-      <div class="lbl">${esc(s.label)}${readmits(p)>1?` (×${readmits(p)})`:""}</div>
-      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div>
-      ${p.statusNote?`<div class="txt">${esc(p.statusNote)}</div>`:""}</div>
-    ${d?`<div class="due ${d.cls}" style="margin-top:8px">${esc(d.txt)}</div>`:""}
-    <div class="small" style="margin-top:12px;font-weight:600">History</div>
-    <ul class="tl">${hist.map(h=>{const hs=st(h.status);return`<li style="--dot:${hs.color}">
-      <span class="t">${esc(hs.label)}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
+      <div class="lbl">Now: ${esc(s.label)}${(p.status==="admitted"||p.status==="readmitted")&&readmits(p)>1?` (${ord(readmits(p))} admission)`:""}</div>
+      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div></div>
+    <ul class="tl">${hist.map(h=>{const hs=st(h.status);const an=(h.status==="admitted"||h.status==="readmitted")?admissionNo(p,h):0;return`<li style="--dot:${hs.color}">
+      <span class="t">${esc(hs.label)}${an>1?` · ${ord(an)} admission`:""}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
       ${hist.length>1?`<button class="x" data-hi="${h._i}">remove</button>`:""}
-      ${h.note?`<div class="n">${esc(h.note)}</div>`:""}
-      ${h.dueDate?`<div class="d">${esc(hs.due)}: ${fmt(h.dueDate)}</div>`:""}</li>`}).join("")}</ul>
+      ${h.note?`<div class="n">${esc(h.note)}</div>`:""}</li>`}).join("")}</ul>
+  </div></div>
+  <div class="sec"><h2>4 · Waiting for <button id="edw">Edit</button></h2><div class="in">
+    ${nextStepOf(p)||d?`<div style="font-weight:600;white-space:pre-wrap">${esc(nextStepOf(p)||"—")}</div>
+      ${d?`<div class="due ${d.cls}" style="margin-top:6px">📅 ${esc(d.txt)}</div>`:""}`:`<div class="small">Nothing pending.</div>`}
   </div></div>
   <div class="actions"><button class="btn wa full" id="wa">Send on WhatsApp</button></div>
   <div class="small" id="wastate" style="margin:6px 2px"></div>
@@ -348,8 +375,9 @@ function renderDetail(id){
   <div class="actions"><button class="btn danger" id="del">Delete patient</button></div>`;
   $("#edit").onclick=()=>go("edit-"+p.id);
   $("#chst").onclick=()=>statusModal(p);
+  $("#edw").onclick=()=>waitingModal(p);
   $("#del").onclick=()=>deletePatient(p);
-  $("#addph").onclick=()=>uploadModal(p);
+  main.querySelectorAll(".addcat").forEach(b=>b.onclick=()=>chooseCat(b,cat=>pickFiles(files=>uploadFiles(p,files.map(f=>({file:f,cat}))))));
   main.querySelectorAll(".tile").forEach(t=>t.onclick=()=>viewer(p,t.dataset.mid));
   main.querySelectorAll(".x[data-hi]").forEach(b=>b.onclick=()=>removeHistory(p,+b.dataset.hi));
   $("#wa").onclick=()=>sendWhatsApp(p);
@@ -360,22 +388,35 @@ function renderDetail(id){
 }
 
 function summary(p){
-  const s=st(p.status),L=[];
-  L.push(`*${p.name||"Patient"}*${p.age?` — ${p.age}y`:""}${p.sex?` ${p.sex}`:""}`);
-  if(p.fileNo)L.push(`File no: ${p.fileNo}`);
-  if(p.consultant)L.push(`Consultant: ${p.consultant}`);
-  if(p.diagnosis)L.push(`Dx: ${p.diagnosis}`);
-  if(p.procedure)L.push(`Procedure: ${p.procedure}`);
-  if(p.medHx)L.push(`Medical Hx: ${p.medHx}`);
-  if(p.surgHx)L.push(`Surgical Hx: ${p.surgHx}`);
-  L.push("",`*Condition: ${s.label}* (${s.date.toLowerCase()} ${fmt(p.statusDate)})`);
-  if(p.statusNote)L.push(p.statusNote);
-  if(p.dueDate)L.push(`${s.due}: ${fmt(p.dueDate)}`);
-  const hist=[...(p.history||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-  if(hist.length>1){L.push("","*History*");hist.forEach(h=>L.push(`• ${fmt(h.date)} — ${st(h.status).label}${h.note?": "+h.note:""}`))}
-  if(p.notes)L.push("",`Notes: ${p.notes}`);
-  const ms=mediaOf(p.id);
-  if(ms.length){L.push("","*Attached*");CAT_ORDER.forEach(k=>{const n=ms.filter(m=>m.cat===k).length;if(n)L.push(`• ${CATS[k]}: ${n}`)})}
+  const s=st(p.status),L=[],SEP="> ————————————";
+  const val=(k)=>(p[k]||"").trim()||DEFAULTS[k]||"—";
+  const sec=(title,v)=>{L.push("> "+title);L.push(v)};
+  sec("Name, Age",`${p.name||""}${p.age?` ، ${p.age} سنة`:""}`);
+  sec("MOT, Vitally",`${(p.mot||"").trim()||"—"} , ${val("vitals")}`);
+  L.push(SEP);
+  L.push("> Fractures");
+  const fx=(p.diagnosis||"").split("\n").map(x=>x.trim()).filter(Boolean);
+  (fx.length?fx:["—"]).forEach(x=>L.push(x.startsWith("#")||x==="—"?x:"# "+x));
+  L.push(SEP);
+  sec("NeuroVascular",val("nv"));
+  L.push(SEP);
+  sec("Medical History",val("medHx"));
+  sec("Surgical History",val("surgHx"));
+  L.push(SEP);
+  sec("General Surgery",val("gs"));
+  sec("Neurosurgery",val("ns"));
+  if(p.procedure){L.push(SEP);sec("Procedure",p.procedure)}
+  L.push(SEP);
+  L.push("> Course");
+  sortedHist(p).filter(h=>h.status!=="waiting").forEach(h=>{const an=(h.status==="admitted"||h.status==="readmitted")?admissionNo(p,h):0;
+    L.push(`• ${fmt(h.date)} — ${st(h.status).label}${an>1?` (${ord(an)})`:""}${h.note?": "+h.note:""}`)});
+  L.push(`Now: ${s.label}`);
+  if(nextStepOf(p)||nextDateOf(p)){L.push(SEP);L.push("> Waiting for");L.push(`${nextStepOf(p)||"—"}${nextDateOf(p)?` — ${fmt(nextDateOf(p))}`:""}`)}
+  if(p.consultant||p.fileNo||p.notes||p.phone){L.push(SEP);
+    if(p.phone)sec("Phone",p.phone);
+    if(p.consultant)sec("Consultant",p.consultant);
+    if(p.fileNo)sec("File no.",p.fileNo);
+    if(p.notes)sec("Notes",p.notes);}
   return L.join("\n");
 }
 
@@ -392,7 +433,7 @@ async function prepareShare(p){
       const b=await getBlob(m); if(share.key!==key)return;
       counter[m.cat]=(counter[m.cat]||0)+1;
       const ext=(b.type||m.mime||"").includes("mp4")?"mp4":(b.type||m.mime||"").includes("webm")?"webm":(m.kind==="video"?"mp4":"jpg");
-      const nm=`${files.length+1} - ${CATS[m.cat].split(" /")[0]} ${counter[m.cat]}.${ext}`;
+      const nm=`${files.length+1} - ${CAT_SHORT[m.cat]||"File"} ${counter[m.cat]}.${ext}`;
       files.push(new File([b],nm,{type:b.type||m.mime}));
       share.done++; updateShareState(p);
     }
@@ -425,7 +466,8 @@ function renderForm(id){
   const p=id?patients.find(x=>x.id===id):null;
   if(id&&!p){subHeader("Edit patient","");$("#main").innerHTML=`<div class="empty">${loaded?"Patient not found.":"Loading…"}</div>`;return}
   subHeader(p?"Edit patient":"New patient",p?"p-"+p.id:"");
-  const v=k=>esc(p?p[k]||"":"");
+  const v=k=>esc(p?(p[k]||""):(DEFAULTS[k]||""));
+  let pending=[];
   $("#main").innerHTML=`<form id="f">
   <div class="sec"><h2>1 · Patient data</h2><div class="in">
     <label class="f">Name *</label><input class="inp" name="name" required value="${v("name")}">
@@ -433,31 +475,43 @@ function renderForm(id){
     <div><label class="f">Sex</label><select class="inp" name="sex"><option value=""></option>${["Male","Female"].map(o=>`<option ${p&&p.sex===o?"selected":""}>${o}</option>`).join("")}</select></div></div>
     <div class="two"><div><label class="f">File no.</label><input class="inp" name="fileNo" value="${v("fileNo")}"></div>
     <div><label class="f">Phone</label><input class="inp" name="phone" inputmode="tel" value="${v("phone")}"></div></div>
-    <label class="f">Consultant</label><input class="inp" name="consultant" list="cl" value="${v("consultant")}">
-    <datalist id="cl">${[...new Set(patients.map(x=>x.consultant).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
-    <label class="f">Diagnosis</label><textarea class="inp" name="diagnosis" placeholder="e.g. Distal radius fracture (Rt)">${v("diagnosis")}</textarea>
-    <label class="f">Procedure(s)</label><textarea class="inp" name="procedure" placeholder="e.g. ORIF with plate & screws">${v("procedure")}</textarea>
-    <label class="f">Medical history</label><textarea class="inp" name="medHx" placeholder="DM, HTN…">${v("medHx")}</textarea>
-    <label class="f">Surgical history</label><textarea class="inp" name="surgHx">${v("surgHx")}</textarea>
+    <label class="f">Consultant</label><input class="inp" name="consultant" data-learn="consultant" autocomplete="off" value="${v("consultant")}">
+    <div class="two"><div><label class="f">MOT</label><input class="inp" name="mot" data-learn="mot" autocomplete="off" placeholder="RTA, FFH…" value="${v("mot")}"></div>
+    <div><label class="f">Vitally</label><input class="inp" name="vitals" data-learn="vitals" autocomplete="off" value="${v("vitals")}"></div></div>
+    <label class="f">Fractures</label><textarea class="inp" name="diagnosis" data-learn="diagnosis" placeholder="One fracture per line, e.g.&#10;Rt bb leg&#10;Lt distal radius">${v("diagnosis")}</textarea>
+    <label class="f">NeuroVascular</label><input class="inp" name="nv" data-learn="nv" autocomplete="off" value="${v("nv")}">
+    <div class="two"><div><label class="f">Medical history</label><textarea class="inp" name="medHx" data-learn="medHx">${v("medHx")}</textarea></div>
+    <div><label class="f">Surgical history</label><textarea class="inp" name="surgHx" data-learn="surgHx">${v("surgHx")}</textarea></div></div>
+    <div class="two"><div><label class="f">General Surgery</label><input class="inp" name="gs" data-learn="gs" autocomplete="off" value="${v("gs")}"></div>
+    <div><label class="f">Neurosurgery</label><input class="inp" name="ns" data-learn="ns" autocomplete="off" value="${v("ns")}"></div></div>
+    <label class="f">Procedure(s)</label><textarea class="inp" name="procedure" data-learn="procedure" placeholder="e.g. ORIF with plate & screws">${v("procedure")}</textarea>
     <label class="f">Other notes</label><textarea class="inp" name="notes">${v("notes")}</textarea>
   </div></div>
-  ${p?"":`<div class="sec"><h2>3 · Current condition</h2><div class="in" id="stbox"></div></div>
-  <div class="small" style="margin:0 2px 10px">Add photos and videos right after saving.</div>`}
+  ${p?"":`<div class="sec"><h2>2 · Photos & videos</h2><div class="in">
+    ${addButtons(true)}
+    <div class="picked" id="picked"></div>
+    <div class="hint">They upload right after you tap Save.</div></div></div>
+  <div class="sec"><h2>3 · Course — first step</h2><div class="in" id="stbox"></div></div>
+  <div class="sec"><h2>4 · Waiting for <span style="text-transform:none;font-weight:400">(optional)</span></h2><div class="in">${waitingFields("","")}</div></div>`}
   <button class="btn pri full" type="submit" id="save">${p?"Save changes":"Save patient"}</button></form>`;
-  if(!p) statusFields($("#stbox"),{status:"admitted",date:today()});
+  attachLearn($("#f"));
+  if(!p){ statusFields($("#stbox"),{status:"admitted",date:today()});
+    const showPicked=()=>{$("#picked").textContent=pending.length?CAT_ORDER.map(k=>{const n=pending.filter(x=>x.cat===k).length;return n?`${CAT_SHORT[k]}: ${n}`:""}).filter(Boolean).join(" · ")+"  ✓":""};
+    document.querySelectorAll("#f .addcat").forEach(b=>b.onclick=()=>chooseCat(b,cat=>pickFiles(files=>{pending=pending.concat(files.map(f=>({file:f,cat})));showPicked()}))); }
   $("#f").onsubmit=async e=>{
     e.preventDefault();const fd=new FormData(e.target);const o={};
-    ["name","age","sex","fileNo","phone","consultant","diagnosis","procedure","medHx","surgHx","notes"].forEach(k=>o[k]=String(fd.get(k)||"").trim());
+    FIELDS.forEach(k=>o[k]=String(fd.get(k)||"").trim());rememberForm(e.target);
     if(!o.name){toast("Name is required");return}
     const btn=$("#save");btn.disabled=true;btn.textContent="Saving…";
     const now=Date.now();
     let np;
     if(p){ np=Object.assign({},p,o,{updatedAt:now,updatedBy:CFG.name}); }
     else{ const sv=readStatus($("#stbox"));
-      np=Object.assign({id:newId()},o,{status:sv.status,statusDate:sv.date,statusNote:sv.note,dueDate:sv.dueDate,
-        history:[{status:sv.status,date:sv.date,note:sv.note,dueDate:sv.dueDate,by:CFG.name,at:now}],
+      np=Object.assign({id:newId()},o,{status:sv.status,statusDate:sv.date,statusNote:sv.note,
+        nextStep:$("#nstep").value.trim(),nextDate:$("#ndate").value||"",
+        history:[{status:sv.status,date:sv.date,note:sv.note,by:CFG.name,at:now}],
         createdAt:now,createdBy:CFG.name,updatedAt:now,updatedBy:CFG.name}); }
-    try{ await savePatient(np); go("p-"+np.id); toast("Saved"); }
+    try{ await savePatient(np); go("p-"+np.id); toast("Saved"); if(pending.length) uploadFiles(np,pending); }
     catch(err){btn.disabled=false;btn.textContent="Try again";toast(err.message)}
   };
 }
@@ -469,18 +523,57 @@ async function savePatient(np){
 
 /* ================= status ================= */
 function statusFields(box,cur){
-  let sel=cur.status||"admitted";
+  let sel=PICK.includes(cur.status)?cur.status:"admitted";
   function draw(){const s=st(sel);
-    box.innerHTML=`<div class="stpick">${Object.entries(STATUSES).map(([k,x])=>`<button type="button" data-k="${k}" class="${k===sel?"on":""}" style="${k===sel?`background:${x.color};border-color:${x.color}`:`color:${x.color}`}">${x.label}</button>`).join("")}</div>
+    box.innerHTML=`<div class="stpick">${PICK.map(k=>{const x=STATUSES[k];return`<button type="button" data-k="${k}" class="${k===sel?"on":""}" style="${k===sel?`background:${x.color};border-color:${x.color}`:`color:${x.color}`}">${x.label}</button>`}).join("")}</div>
     <label class="f">${esc(s.date)}</label><input class="inp" type="date" data-f="date" value="${esc(cur.date||today())}">
-    <label class="f">${esc(s.note)}</label><textarea class="inp" data-f="note">${esc(cur.note||"")}</textarea>
-    <label class="f">${esc(s.due)} <span class="small">(optional)</span></label><input class="inp" type="date" data-f="dueDate" value="${esc(cur.dueDate||"")}">
-    <div class="hint">The list is sorted by this date; amber 7 days before, red when overdue.</div>`;
-    box.dataset.status=sel;
+    <label class="f">${esc(s.note)}</label><textarea class="inp" data-f="note" data-learn="note">${esc(cur.note||"")}</textarea>`;
+    box.dataset.status=sel;attachLearn(box);
     box.querySelectorAll(".stpick button").forEach(b=>b.onclick=()=>{cur=readStatus(box);sel=b.dataset.k;draw()});}
   draw();
 }
-function readStatus(box){return{status:box.dataset.status,date:box.querySelector('[data-f="date"]').value||today(),note:box.querySelector('[data-f="note"]').value.trim(),dueDate:box.querySelector('[data-f="dueDate"]').value||""}}
+function readStatus(box){return{status:box.dataset.status,date:box.querySelector('[data-f="date"]').value||today(),note:box.querySelector('[data-f="note"]').value.trim()}}
+function waitingFields(step,date){return `<label class="f">Waiting for what?</label>
+  <textarea class="inp" id="nstep" data-learn="nextStep" placeholder="e.g. 3rd admission for ORIF / plate removal after 1 year / Ex Fx in 2 weeks">${esc(step)}</textarea>
+  <label class="f">Planned date <span class="small">(optional)</span></label><input class="inp" type="date" id="ndate" value="${esc(date)}">
+  <div class="hint">The patient list is sorted by this date: amber 7 days before, red when overdue.</div>`}
+
+/* ================= learned suggestions ================= */
+function learnedLocal(){try{return JSON.parse(localStorage.getItem("ortho_learn")||"{}")}catch(e){return{}}}
+function remember(key,val){const L=learnedLocal();const items=(LINE_FIELDS[key]?String(val||"").split("\n"):[val]).map(x=>String(x||"").trim()).filter(Boolean);
+  if(!items.length)return;L[key]=[...new Set([...(L[key]||[]),...items])].slice(-300);try{localStorage.setItem("ortho_learn",JSON.stringify(L))}catch(e){}}
+function vocab(key){
+  const cnt={};const add=(v,w)=>{(LINE_FIELDS[key]?String(v||"").split("\n"):[v]).forEach(x=>{x=String(x||"").trim();if(x&&x!=="—")cnt[x]=(cnt[x]||0)+(w||1)})};
+  if(key==="note")patients.forEach(p=>(p.history||[]).forEach(h=>add(h.note)));
+  else if(key==="nextStep")patients.forEach(p=>add(p.nextStep));
+  else patients.forEach(p=>add(p[key]));
+  (learnedLocal()[key]||[]).forEach(v=>add(v,0.5));(SEEDS[key]||[]).forEach(v=>add(v,0.1));
+  return Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+}
+function attachLearn(root){
+  root.querySelectorAll("[data-learn]").forEach(el=>{
+    if(el.dataset.learnOn)return;el.dataset.learnOn="1";
+    const key=el.dataset.learn,multi=!!LINE_FIELDS[key];
+    const box=document.createElement("div");box.className="sugg";el.insertAdjacentElement("afterend",box);
+    const token=()=>{if(!multi)return el.value;const v=el.value.slice(0,el.selectionStart??el.value.length);return v.split("\n").pop()};
+    const draw=()=>{
+      const t=token().trim().toLowerCase();
+      const list=vocab(key).filter(x=>!t||x.toLowerCase().includes(t)).filter(x=>x.toLowerCase()!==t).slice(0,8);
+      box.innerHTML=list.map(x=>`<button type="button">${esc(x)}</button>`).join("");
+      box.style.display=list.length?"flex":"none";
+      box.querySelectorAll("button").forEach((b,i)=>{b.onpointerdown=e=>e.preventDefault();b.onclick=()=>{
+        const val=list[i];
+        if(!multi)el.value=val;
+        else{const pos=el.selectionStart??el.value.length;const before=el.value.slice(0,pos),after=el.value.slice(pos);
+          const start=before.lastIndexOf("\n")+1;const nl=after.indexOf("\n");const rest=nl<0?"":after.slice(nl);
+          el.value=before.slice(0,start)+val+rest;const c=start+val.length;el.setSelectionRange(c,c);}
+        el.dispatchEvent(new Event("input"));el.focus();box.style.display="none";}});
+    };
+    el.addEventListener("focus",draw);el.addEventListener("input",draw);el.addEventListener("click",draw);
+    el.addEventListener("blur",()=>setTimeout(()=>{box.style.display="none"},150));
+  });
+}
+function rememberForm(root){root.querySelectorAll("[data-learn]").forEach(el=>remember(el.dataset.learn,el.value))}
 
 /* ================= modals ================= */
 function modal(html){const l=$("#layer");l.innerHTML=`<div class="modal"><div class="box">${html}</div></div>`;
@@ -491,18 +584,30 @@ function confirmBox(title,text,ok){return new Promise(res=>{
   b.querySelector("#cn").onclick=()=>{closeModal();res(false)};b.querySelector("#ok").onclick=()=>{closeModal();res(true)}})}
 
 function statusModal(p){
-  const b=modal(`<h3>Change condition — ${esc(p.name)}</h3><div class="small">A new entry is added to the history.</div><div id="sb"></div>
+  const b=modal(`<h3>Add step — ${esc(p.name)}</h3><div class="small">Added to the course in date order.</div><div id="sb"></div>
+  <div class="small" style="margin-top:14px;font-weight:600">Still waiting for… (update or clear)</div>${waitingFields(nextStepOf(p),nextDateOf(p))}
   <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Save</button></div>`);
-  const box=b.querySelector("#sb");statusFields(box,{status:p.status,date:today()});
+  const box=b.querySelector("#sb");statusFields(box,{status:p.status,date:today()});attachLearn(b);
   b.querySelector("#cn").onclick=closeModal;
   b.querySelector("#ok").onclick=async e=>{
-    const sv=readStatus(box);e.target.disabled=true;e.target.textContent="Saving…";
+    const sv=readStatus(box);rememberForm(b);e.target.disabled=true;e.target.textContent="Saving…";
     const now=Date.now();const cur=patients.find(x=>x.id===p.id)||p;
-    const np=Object.assign({},cur,{status:sv.status,statusDate:sv.date,statusNote:sv.note,dueDate:sv.dueDate,
-      history:[...(cur.history||[]),{status:sv.status,date:sv.date,note:sv.note,dueDate:sv.dueDate,by:CFG.name,at:now}],updatedAt:now,updatedBy:CFG.name});
+    const np=Object.assign({},cur,{status:sv.status,statusDate:sv.date,statusNote:sv.note,
+      nextStep:b.querySelector("#nstep").value.trim(),nextDate:b.querySelector("#ndate").value||"",
+      history:[...(cur.history||[]),{status:sv.status,date:sv.date,note:sv.note,by:CFG.name,at:now}],updatedAt:now,updatedBy:CFG.name});
     try{await savePatient(np);closeModal();toast("Condition updated");render()}
     catch(err){e.target.disabled=false;e.target.textContent="Save";toast(err.message)}
   };
+}
+function waitingModal(p){
+  const b=modal(`<h3>Waiting for — ${esc(p.name)}</h3>${waitingFields(nextStepOf(p),nextDateOf(p))}
+  <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn danger" id="clr">Nothing pending</button><button class="btn pri" id="ok">Save</button></div>`);
+  b.querySelector("#cn").onclick=closeModal;attachLearn(b);
+  const save=async(step,date,btn)=>{rememberForm(b);btn.disabled=true;const cur=patients.find(x=>x.id===p.id)||p;
+    const np=Object.assign({},cur,{nextStep:step,nextDate:date,updatedAt:Date.now(),updatedBy:CFG.name});
+    try{await savePatient(np);closeModal();render()}catch(err){btn.disabled=false;toast(err.message)}};
+  b.querySelector("#ok").onclick=e=>save(b.querySelector("#nstep").value.trim(),b.querySelector("#ndate").value||"",e.target);
+  b.querySelector("#clr").onclick=e=>save("","",e.target);
 }
 function latestOf(h){if(!h.length)return null;return h.map((x,i)=>({x,i})).sort((a,b)=>(a.x.date||"").localeCompare(b.x.date||"")||(a.x.at||0)-(b.x.at||0)||a.i-b.i).pop().x}
 async function removeHistory(p,i){
@@ -510,7 +615,7 @@ async function removeHistory(p,i){
   if(!await confirmBox("Remove history entry?",`${st(h.status).label} on ${fmt(h.date)} will be removed.`,"Remove"))return;
   hist.splice(i,1);const L=latestOf(hist);
   const np=Object.assign({},cur,{history:hist,updatedAt:Date.now(),updatedBy:CFG.name});
-  if(L)Object.assign(np,{status:L.status,statusDate:L.date,statusNote:L.note||"",dueDate:L.dueDate||""});
+  if(L)Object.assign(np,{status:L.status,statusDate:L.date,statusNote:L.note||""});
   try{await savePatient(np);render()}catch(err){toast(err.message)}
 }
 async function deletePatient(p){
@@ -521,42 +626,51 @@ async function deletePatient(p){
 }
 
 /* ================= upload + compression ================= */
-function uploadModal(p){
-  const b=modal(`<h3>Add photos / videos — ${esc(p.name)}</h3>
-  <label class="f">Type</label><select class="inp" id="pc">${CAT_ORDER.map(k=>`<option value="${k}">${CATS[k]}</option>`).join("")}</select>
-  <label class="f">Files</label><input class="inp" type="file" id="pf" accept="image/*,video/*" multiple>
-  <div class="hint">Camera or gallery, several at once. Photos and videos are compressed to the smallest readable size before upload. Keep the screen on while videos are compressing.</div>
-  <div id="pp" class="small" style="margin-top:10px"></div><div class="prog"><div id="pb"></div></div>
-  <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Upload</button></div>`);
-  let cancelled=false;
-  b.querySelector("#cn").onclick=()=>{cancelled=true;closeModal()};
-  b.querySelector("#ok").onclick=async e=>{
-    const files=[...b.querySelector("#pf").files];if(!files.length){toast("Choose files first");return}
-    const cat=b.querySelector("#pc").value;e.target.disabled=true;$("#layer").dataset.lock="1";
-    const msg=t=>{const x=b.querySelector("#pp");if(x)x.textContent=t};
-    const bar=f=>{const x=b.querySelector("#pb");if(x)x.style.width=Math.round(f*100)+"%"};
-    let ok=0,saved=0;
-    for(let i=0;i<files.length&&!cancelled;i++){
-      const f=files[i];const tag=`${i+1}/${files.length}`;
-      try{
-        let r;
-        if(f.type.startsWith("video")){msg(`Compressing video ${tag}…`);r=await compressVideo(f,x=>{bar(x*0.8)});}
-        else{msg(`Compressing photo ${tag}…`);r=await compressImage(f);}
-        if(r.blob.size>35*1048576)throw new Error("still over 35 MB after compression — trim the video");
-        saved+=Math.max(0,f.size-r.blob.size);
-        msg(`Uploading ${tag} (${mb(r.blob.size)})…`);bar(.85);
-        const m=await api("upload",{patientId:p.id,patientName:p.name,cat,kind:r.kind,mime:r.blob.type,
-          name:`${CATS[cat].split(" /")[0]} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
-        media.push(m);thumbs[m.id]=r.thumb||"";ok++;
-        try{const c=await mediaCache();if(c)await c.put("/__media/"+m.fileId,new Response(r.blob))}catch(_){}
-        bar(1);
-      }catch(err){toast(`File ${tag} failed: ${err.message}`,4000)}
-    }
-    closeModal();
-    if(ok)toast(`${ok} file${ok>1?"s":""} added · saved ${mb(saved)} by compressing`);
-    try{localStorage.setItem("ortho_cache",JSON.stringify({patients,media}))}catch(_){}
-    render();
-  };
+function chooseCat(btn,cb){
+  if(!btn.dataset.ask){cb(btn.dataset.cat);return}
+  const k=btn.dataset.cat,l=k==="ct"?"CT":"X-ray";
+  const b=modal(`<h3>${l} — old or new?</h3><div class="actions">
+    <button type="button" class="btn full" id="o">Old ${l}</button><button type="button" class="btn pri full" id="n">New ${l}</button>
+    <button type="button" class="btn full" id="c">Cancel</button></div>`);
+  b.querySelector("#o").onclick=()=>{closeModal();cb(k+"_old")};
+  b.querySelector("#n").onclick=()=>{closeModal();cb(k+"_new")};
+  b.querySelector("#c").onclick=closeModal;
+}
+function pickFiles(cb){
+  const i=document.createElement("input");i.type="file";i.accept="image/*,video/*";i.multiple=true;
+  i.onchange=()=>{const f=[...i.files];if(f.length)cb(f)};i.click();
+}
+async function uploadFiles(p,items){
+  const b=modal(`<h3>Adding ${items.length} file${items.length>1?"s":""} — ${esc(p.name)}</h3>
+  <div class="hint">Compressing to the smallest readable size, then uploading. Keep the screen on while videos compress.</div>
+  <div id="pp" class="small" style="margin-top:10px">Starting…</div><div class="prog"><div id="pb"></div></div>
+  <div class="actions"><button class="btn" id="cn">Stop</button></div>`);
+  $("#layer").dataset.lock="1";
+  let cancelled=false;b.querySelector("#cn").onclick=()=>{cancelled=true};
+  const msg=t=>{const x=b.querySelector("#pp");if(x)x.textContent=t};
+  const bar=f=>{const x=b.querySelector("#pb");if(x)x.style.width=Math.round(f*100)+"%"};
+  let ok=0,saved=0;
+  for(let i=0;i<items.length&&!cancelled;i++){
+    const {file:f,cat}=items[i];const tag=`${i+1}/${items.length}`;
+    const part=(x)=>bar((i+x)/items.length);
+    try{
+      let r;
+      if(f.type.startsWith("video")){msg(`Compressing video ${tag}…`);r=await compressVideo(f,x=>part(x*0.8));}
+      else{msg(`Compressing photo ${tag}…`);r=await compressImage(f);}
+      if(r.blob.size>35*1048576)throw new Error("still over 35 MB after compression — trim the video");
+      saved+=Math.max(0,f.size-r.blob.size);
+      msg(`Uploading ${tag} (${mb(r.blob.size)})…`);part(.85);
+      const m=await api("upload",{patientId:p.id,patientName:p.name,cat,kind:r.kind,mime:r.blob.type,
+        name:`${CAT_SHORT[cat]} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
+      media.push(m);thumbs[m.id]=r.thumb||"";ok++;
+      try{const c=await mediaCache();if(c)await c.put("/__media/"+m.fileId,new Response(r.blob))}catch(_){}
+      part(1);
+    }catch(err){toast(`File ${tag} failed: ${err.message}`,4000)}
+  }
+  closeModal();
+  if(ok)toast(`${ok} file${ok>1?"s":""} added · saved ${mb(saved)} by compressing`);
+  try{localStorage.setItem("ortho_cache",JSON.stringify({patients,media}))}catch(_){}
+  render();
 }
 function toB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(blob)})}
 function canvasThumb(src,w,h){const k=Math.min(1,THUMB/Math.max(w,h));const c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c.toDataURL("image/jpeg",0.6)}
