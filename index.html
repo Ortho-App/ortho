@@ -90,6 +90,9 @@ textarea.inp{min-height:64px;resize:vertical}
 .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#1a202c;color:#fff;padding:10px 16px;border-radius:10px;z-index:40;font-size:14px;max-width:90vw;text-align:center}
 .notice{background:#fffaf0;border:1px solid #fbd38d;color:#7b341e;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0}
 .small{font-size:12px;color:var(--muted)}
+.tile.sel{outline:3px solid var(--navy2);outline-offset:-3px}
+.tile.sel::after{content:'✓';position:absolute;top:4px;right:4px;background:var(--navy2);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.selbar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.08)}
 .sugg{display:none;flex-wrap:wrap;gap:6px;margin-top:6px}
 .sugg button{border:1px solid #bee3f8;background:#ebf8ff;color:#2a4365;border-radius:999px;padding:6px 10px;font-size:13px;cursor:pointer}
 .addrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
@@ -164,6 +167,7 @@ let patients = [], media = [], loaded = false, loadErr = "", lastLoad = 0;
 let filter = {q:"", status:"all", consultant:""};
 const thumbs = {};          // mediaId -> dataURL
 let shownForm = null;
+let sel={pid:null,ids:new Set()};
 let installEvt = null;
 
 /* ================= helpers ================= */
@@ -183,6 +187,12 @@ function dueInfo(p){const dt=nextDateOf(p),n=daysTo(dt);if(n===null)return null;
   if(n<=7)return{cls:"soon",txt:`${fmt(dt)} — in ${n}d`};
   return{cls:"",txt:fmt(dt)}}
 function admissionNo(p,upto){let n=0;for(const h of sortedHist(p)){if(h.status==="admitted"||h.status==="readmitted")n++;if(h._i===upto._i)break}return n}
+const KIND={admitted:"adm",readmitted:"adm",operated:"op",discharged:"dis"}, KWORD={adm:"admission",op:"operation",dis:"discharge"};
+function kindCount(p,k){return (p.history||[]).filter(h=>KIND[h.status]===k).length}
+/* "2nd discharge" etc. — shown when that kind happened more than once */
+function stepTag(p,h,short){const k=KIND[h.status];if(!k)return"";const total=kindCount(p,k);if(total<2)return"";
+  let n=0;for(const x of sortedHist(p)){if(KIND[x.status]===k)n++;if(x._i===h._i)break}
+  return short?` (${ord(n)})`:` · ${ord(n)} ${KWORD[k]}`}
 function sortedHist(p){return [...(p.history||[])].map((h,i)=>Object.assign({_i:i},h)).sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.at||0)-(b.at||0)||a._i-b._i)}
 function ord(n){return n+(n%100>=11&&n%100<=13?"th":["th","st","nd","rd"][n%10]||"th")}
 function readmits(p){return (p.history||[]).filter(h=>h.status==="readmitted"||h.status==="admitted").length}
@@ -377,15 +387,17 @@ function renderDetail(id){
     ${row("Medical Hx",p.medHx)}${row("Surgical Hx",p.surgHx)}${row("General Surgery",p.gs)}${row("Neurosurgery",p.ns)}
     ${row("Procedure(s)",p.procedure)}${row("Notes",p.notes)}
   </div></div></div>
-  <div class="sec"><h2>2 · Photos & videos</h2><div class="in">${ph}
+  <div class="sec"><h2>2 · Photos & videos ${ms.length?`<button id="selm">${sel.pid===p.id?"Done":"Select"}</button>`:""}</h2><div class="in">${ph}
+    ${sel.pid===p.id?`<div class="selbar"><b id="selc">${sel.ids.size} selected</b><button class="btn pri" id="selmv">Move to section</button><button class="btn danger" id="seldel">Delete</button><button class="btn" id="selx">Cancel</button></div>`:`
     ${addButtons(false)}
-    <div class="hint">Camera or gallery, several at once. X-ray and CT ask old or new. Photos and videos are compressed automatically.</div></div></div>
+    <div class="hint">Camera or gallery, several at once. Old asks for the date of the film. To move several photos, tap Select.</div>`}</div></div>
   <div class="sec"><h2>3 · Course <button id="chst">+ Add step</button></h2><div class="in">
     <div class="status-now" style="background:${s.color}">
       <div class="lbl">Now: ${esc(s.label)}${(p.status==="admitted"||p.status==="readmitted")&&readmits(p)>1?` (${ord(readmits(p))} admission)`:""}</div>
-      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div></div>
-    <ul class="tl">${hist.map(h=>{const hs=st(h.status);const an=(h.status==="admitted"||h.status==="readmitted")?admissionNo(p,h):0;return`<li style="--dot:${hs.color}">
-      <span class="t">${esc(hs.label)}${an>1?` · ${ord(an)} admission`:""}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
+      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div>
+      ${nextStepOf(p)||nextDateOf(p)?`<div class="txt" style="margin-top:8px;font-weight:600">⏳ Waiting for: ${esc(nextStepOf(p)||"—")}${nextDateOf(p)?" — "+fmt(nextDateOf(p)):""}</div>`:""}</div>
+    <ul class="tl">${hist.map(h=>{const hs=st(h.status);return`<li style="--dot:${hs.color}">
+      <span class="t">${esc(hs.label)}${stepTag(p,h)}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
       ${hist.length>1?`<button class="x" data-hi="${h._i}">remove</button>`:""}
       ${h.note?`<div class="n">${esc(h.note)}</div>`:""}</li>`}).join("")}</ul>
   </div></div>
@@ -401,8 +413,22 @@ function renderDetail(id){
   $("#chst").onclick=()=>statusModal(p);
   $("#edw").onclick=()=>waitingModal(p);
   $("#del").onclick=()=>deletePatient(p);
-  main.querySelectorAll(".addcat").forEach(b=>b.onclick=()=>chooseCat(b,cat=>pickFiles(files=>uploadFiles(p,files.map(f=>({file:f,cat}))))));
-  main.querySelectorAll(".tile").forEach(t=>t.onclick=()=>viewer(p,t.dataset.mid));
+  main.querySelectorAll(".addcat").forEach(b=>b.onclick=()=>chooseCat(b,(cat,date)=>pickFiles(files=>uploadFiles(p,files.map(f=>({file:f,cat,date}))))));
+  if(sel.pid!==p.id)sel={pid:null,ids:new Set()};
+  main.querySelectorAll(".tile").forEach(t=>{
+    if(sel.pid===p.id&&sel.ids.has(t.dataset.mid))t.classList.add("sel");
+    t.onclick=()=>{ if(sel.pid!==p.id)return viewer(p,t.dataset.mid);
+      const id=t.dataset.mid; if(sel.ids.has(id)){sel.ids.delete(id);t.classList.remove("sel")}else{sel.ids.add(id);t.classList.add("sel")}
+      const c=$("#selc");if(c)c.textContent=sel.ids.size+" selected"; };
+  });
+  if($("#selm"))$("#selm").onclick=()=>{sel=sel.pid===p.id?{pid:null,ids:new Set()}:{pid:p.id,ids:new Set()};renderDetail(p.id)};
+  if($("#selx"))$("#selx").onclick=()=>{sel={pid:null,ids:new Set()};renderDetail(p.id)};
+  if($("#selmv"))$("#selmv").onclick=()=>{if(!sel.ids.size)return toast("Tap photos to select them");
+    moveMedia(p,[...sel.ids],null,()=>{sel={pid:null,ids:new Set()};render()})};
+  if($("#seldel"))$("#seldel").onclick=async()=>{const ids=[...sel.ids];if(!ids.length)return toast("Tap photos to select them");
+    if(!await confirmBox(`Delete ${ids.length} file${ids.length>1?"s":""}?`,"They will be removed for everyone.","Delete"))return;
+    toast("Deleting…",1500);for(const id of ids){try{await api("deleteMedia",{id});media=media.filter(x=>x.id!==id)}catch(err){toast(err.message)}}
+    sel={pid:null,ids:new Set()};render()};
   main.querySelectorAll(".x[data-hi]").forEach(b=>b.onclick=()=>removeHistory(p,+b.dataset.hi));
   $("#wa").onclick=()=>sendWhatsApp(p);
   // thumbnails, then prepare files for one-tap sharing
@@ -432,8 +458,8 @@ function summary(p){
   if(p.procedure){L.push(SEP);sec("Procedure",p.procedure)}
   L.push(SEP);
   L.push("> Course");
-  sortedHist(p).filter(h=>h.status!=="waiting").forEach(h=>{const an=(h.status==="admitted"||h.status==="readmitted")?admissionNo(p,h):0;
-    L.push(`• ${fmt(h.date)} — ${st(h.status).label}${an>1?` (${ord(an)})`:""}${h.note?": "+h.note:""}`)});
+  sortedHist(p).filter(h=>h.status!=="waiting").forEach(h=>{
+    L.push(`• ${fmt(h.date)} — ${st(h.status).label}${stepTag(p,h,true)}${h.note?": "+h.note:""}`)});
   L.push(`Now: ${s.label}`);
   if(nextStepOf(p)||nextDateOf(p)){L.push(SEP);L.push("> Waiting for");L.push(`${nextStepOf(p)||"—"}${nextDateOf(p)?` — ${fmt(nextDateOf(p))}`:""}`)}
   if(p.consultant||p.fileNo||p.notes||p.phone){L.push(SEP);
@@ -520,7 +546,7 @@ function renderForm(id){
   attachLearn($("#f"));
   if(!p){ statusFields($("#stbox"),{status:"admitted",date:today()});
     const showPicked=()=>{const c={};pending.forEach(x=>{const l=catLabel(x.cat);c[l]=(c[l]||0)+1});$("#picked").textContent=pending.length?Object.entries(c).map(([l,n])=>`${l}: ${n}`).join(" · ")+"  ✓":""};
-    document.querySelectorAll("#f .addcat").forEach(b=>b.onclick=()=>chooseCat(b,cat=>pickFiles(files=>{pending=pending.concat(files.map(f=>({file:f,cat})));showPicked()}))); }
+    document.querySelectorAll("#f .addcat").forEach(b=>b.onclick=()=>chooseCat(b,(cat,date)=>pickFiles(files=>{pending=pending.concat(files.map(f=>({file:f,cat,date})));showPicked()}))); }
   $("#f").onsubmit=async e=>{
     e.preventDefault();const fd=new FormData(e.target);const o={};
     FIELDS.forEach(k=>o[k]=String(fd.get(k)||"").trim());rememberForm(e.target);
@@ -547,12 +573,13 @@ async function savePatient(np){
 /* ================= status ================= */
 function statusFields(box,cur){
   let sel=PICK.includes(cur.status)?cur.status:"admitted";
+  const notes={};notes[sel]=cur.note||"";
   function draw(){const s=st(sel);
-    box.innerHTML=`<div class="stpick">${PICK.map(k=>{const x=STATUSES[k];return`<button type="button" data-k="${k}" class="${k===sel?"on":""}" style="${k===sel?`background:${x.color};border-color:${x.color}`:`color:${x.color}`}">${x.label}</button>`}).join("")}</div>
+    box.innerHTML=`<div class="stpick">${PICK.map(k=>{const x=STATUSES[k];const nx=cur.counts&&KIND[k]&&cur.counts[KIND[k]]?` (${ord(cur.counts[KIND[k]]+1)})`:"";return`<button type="button" data-k="${k}" class="${k===sel?"on":""}" style="${k===sel?`background:${x.color};border-color:${x.color}`:`color:${x.color}`}">${x.label}${nx}</button>`}).join("")}</div>
     <label class="f">${esc(s.date)}</label><input class="inp" type="date" data-f="date" value="${esc(cur.date||today())}">
-    <label class="f">${esc(s.note)}</label><textarea class="inp" data-f="note" data-learn="note">${esc(cur.note||"")}</textarea>`;
+    <label class="f">${esc(s.note)}</label><textarea class="inp" data-f="note" data-learn="note">${esc(notes[sel]||"")}</textarea>`;
     box.dataset.status=sel;attachLearn(box);
-    box.querySelectorAll(".stpick button").forEach(b=>b.onclick=()=>{cur=readStatus(box);sel=b.dataset.k;draw()});}
+    box.querySelectorAll(".stpick button").forEach(b=>b.onclick=()=>{const r=readStatus(box);notes[sel]=r.note;cur={date:r.date,counts:cur.counts};sel=b.dataset.k;draw()});}
   draw();
 }
 function readStatus(box){return{status:box.dataset.status,date:box.querySelector('[data-f="date"]').value||today(),note:box.querySelector('[data-f="note"]').value.trim()}}
@@ -610,7 +637,8 @@ function statusModal(p){
   const b=modal(`<h3>Add step — ${esc(p.name)}</h3><div class="small">Added to the course in date order.</div><div id="sb"></div>
   <div class="small" style="margin-top:14px;font-weight:600">Still waiting for… (update or clear)</div>${waitingFields(nextStepOf(p),nextDateOf(p))}
   <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Save</button></div>`);
-  const box=b.querySelector("#sb");statusFields(box,{status:p.status,date:today()});attachLearn(b);
+  const nextOf={admitted:"operated",operated:"discharged",discharged:"readmitted",readmitted:"operated"};
+  const box=b.querySelector("#sb");statusFields(box,{status:nextOf[p.status]||"admitted",date:today(),counts:{adm:kindCount(p,"adm"),op:kindCount(p,"op"),dis:kindCount(p,"dis")}});attachLearn(b);
   b.querySelector("#cn").onclick=closeModal;
   b.querySelector("#ok").onclick=async e=>{
     const sv=readStatus(box);rememberForm(b);e.target.disabled=true;e.target.textContent="Saving…";
@@ -649,14 +677,29 @@ async function deletePatient(p){
 }
 
 /* ================= upload + compression ================= */
+function moveMedia(p,ids,defDate,done){
+  const opts=ADD_BTNS.flatMap(([k,lab,ask])=>ask?[[k+"_new",lab+" — New"],[k+"_old",lab+" — Old"]]:[[k,lab]]);
+  const b=modal(`<h3>Move ${ids.length>1?ids.length+" files":"file"} to…</h3>
+    <label class="f">Date of the film (used for Old)</label><input class="inp" type="date" id="sd" value="${esc(defDate||today())}">
+    <div class="addrow">${opts.map(([c,lab])=>`<button type="button" class="btn" data-c="${c}">${lab}</button>`).join("")}</div>
+    <div class="actions"><button type="button" class="btn full" id="sc">Cancel</button></div>`);
+  b.querySelector("#sc").onclick=()=>{closeModal();};
+  b.querySelectorAll("[data-c]").forEach(x=>x.onclick=async()=>{
+    const cur=patients.find(y=>y.id===p.id)||p;const mcat=Object.assign({},cur.mediaCat||{});const ma=Object.assign({},cur.mediaAge||{});
+    const c=x.dataset.c,d=b.querySelector("#sd").value||today();
+    ids.forEach(id=>{const m=media.find(y=>y.id===id)||{};mcat[id]={cat:c,date:c.endsWith("_old")?d:(c.endsWith("_new")?today():(m.date||today()))};delete ma[id]});
+    try{await savePatient(Object.assign({},cur,{mediaCat:mcat,mediaAge:ma}));closeModal();toast("Moved");(done||render)()}catch(err){toast(err.message)}});
+}
 function chooseCat(btn,cb){
-  if(!btn.dataset.ask){cb(btn.dataset.cat);return}
+  if(!btn.dataset.ask){cb(btn.dataset.cat,today());return}
   const k=btn.dataset.cat,l=BASES[k][0];
-  const b=modal(`<h3>${l} — old or new?</h3><div class="hint">New moves the earlier "new" ${l} to Old automatically.</div><div class="actions">
-    <button type="button" class="btn full" id="o">Old ${l}</button><button type="button" class="btn pri full" id="n">New ${l}</button>
-    <button type="button" class="btn full" id="c">Cancel</button></div>`);
-  b.querySelector("#o").onclick=()=>{closeModal();cb(k+"_old")};
-  b.querySelector("#n").onclick=()=>{closeModal();cb(k+"_new")};
+  const b=modal(`<h3>${l} — new or old?</h3>
+    <div class="actions"><button type="button" class="btn pri full" id="n">New ${l} (today)</button></div>
+    <div class="hint">New moves the earlier new ${l} to Old automatically.</div>
+    <label class="f">Old ${l} — date of the film</label><input class="inp" type="date" id="od" value="${today()}">
+    <div class="actions"><button type="button" class="btn full" id="o">Add as Old ${l}</button><button type="button" class="btn full" id="c">Cancel</button></div>`);
+  b.querySelector("#n").onclick=()=>{closeModal();cb(k+"_new",today())};
+  b.querySelector("#o").onclick=()=>{const d=b.querySelector("#od").value||today();closeModal();cb(k+"_old",d)};
   b.querySelector("#c").onclick=closeModal;
 }
 function pickFiles(cb){
@@ -674,7 +717,7 @@ async function uploadFiles(p,items){
   const bar=f=>{const x=b.querySelector("#pb");if(x)x.style.width=Math.round(f*100)+"%"};
   let ok=0,saved=0;
   for(let i=0;i<items.length&&!cancelled;i++){
-    const {file:f,cat}=items[i];const tag=`${i+1}/${items.length}`;
+    const {file:f,cat}=items[i];const fdate=items[i].date||today();const tag=`${i+1}/${items.length}`;
     const part=(x)=>bar((i+x)/items.length);
     try{
       let r;
@@ -684,7 +727,7 @@ async function uploadFiles(p,items){
       saved+=Math.max(0,f.size-r.blob.size);
       msg(`Uploading ${tag} (${mb(r.blob.size)})…`);part(.85);
       const m=await api("upload",{patientId:p.id,patientName:p.name,cat,kind:r.kind,mime:r.blob.type,
-        name:`${catLabel(cat)} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
+        name:`${catLabel(cat)} ${fdate} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:fdate});
       media.push(m);thumbs[m.id]=r.thumb||"";ok++;
       try{const c=await mediaCache();if(c)await c.put("/__media/"+m.fileId,new Response(r.blob))}catch(_){}
       part(1);
@@ -748,17 +791,7 @@ function viewer(p,mid){
     l.querySelector("#vc").onclick=()=>{if(objUrl)URL.revokeObjectURL(objUrl);l.innerHTML=""};
     l.querySelector("#vp").onclick=()=>{if(i>0){i--;draw()}};
     l.querySelector("#vn").onclick=()=>{if(i<ms.length-1){i++;draw()}};
-    l.querySelector("#vs").onclick=()=>{
-      const opts=ADD_BTNS.flatMap(([k,lab,ask])=>ask?[[k+"_new",lab+" — New"],[k+"_old",lab+" — Old"]]:[[k,lab]]);
-      const b=modal(`<h3>Move to section</h3><div class="addrow">${opts.map(([c,lab])=>`<button type="button" class="btn" data-c="${c}">${lab}</button>`).join("")}</div>
-        <label class="f">Date (for Old)</label><input class="inp" type="date" id="sd" value="${esc(m.date||today())}">
-        <div class="actions"><button type="button" class="btn full" id="sc">Cancel</button></div>`);
-      b.querySelector("#sc").onclick=()=>draw();
-      b.querySelectorAll("[data-c]").forEach(x=>x.onclick=async()=>{
-        const cur=patients.find(y=>y.id===p.id)||p;const mcat=Object.assign({},cur.mediaCat||{});const ma=Object.assign({},cur.mediaAge||{});
-        const c=x.dataset.c;mcat[m.id]={cat:c,date:c.endsWith("_old")?(b.querySelector("#sd").value||m.date):(c.endsWith("_new")?today():m.date)};delete ma[m.id];
-        try{await savePatient(Object.assign({},cur,{mediaCat:mcat,mediaAge:ma}));closeModal();toast("Moved");render()}catch(err){toast(err.message)}});
-    };
+    l.querySelector("#vs").onclick=()=>moveMedia(p,[m.id],m.date,()=>{l.innerHTML="";render()});
     const mv=l.querySelector("#vmv");if(mv)mv.onclick=async()=>{
       const cur=patients.find(x=>x.id===p.id)||p;const ma=Object.assign({},cur.mediaAge||{});
       ma[m.id]={age:gl[i].g.age==="new"?"old":"new",at:today()};
