@@ -97,6 +97,8 @@ textarea.inp{min-height:64px;resize:vertical}
 .epb{margin-bottom:8px}
 .eph{font-weight:700;margin-bottom:4px}
 .addop{background:#faf5ff;color:var(--c-operated);border:1px dashed #d6bcfa;padding:8px 10px;margin:2px 0 10px;font-size:13px}
+.gsend{background:#25d366;color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.gsend[disabled]{background:#c6f6d5;color:#276749}
 .sugg{display:none;flex-wrap:wrap;gap:6px;margin-top:6px}
 .sugg button{border:1px solid #bee3f8;background:#ebf8ff;color:#2a4365;border-radius:999px;padding:6px 10px;font-size:13px;cursor:pointer}
 .addrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
@@ -430,7 +432,7 @@ function renderDetail(id){
   const row=(k,v)=>v?`<div class="k">${k}</div><div class="v">${esc(v)}</div>`:"";
   let ph="";
   for(const G of mediaGroups(p)){const g=G.items;
-    ph+=`<div class="pgroup"><div class="gt" style="${G.age==="new"?"color:var(--navy2)":""}">${esc(G.label)} (${g.length})</div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
+    ph+=`<div class="pgroup"><div class="gt" style="display:flex;justify-content:space-between;align-items:center;gap:8px;${G.age==="new"?"color:var(--navy2)":""}"><span>${esc(G.label)} (${g.length})</span><button class="gsend" data-label="${esc(G.label)}" disabled>…</button></div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
   if(!ph) ph=`<div class="small">No photos or videos yet.</div>`;
   const hist=sortedHist(p);
   main.innerHTML=`
@@ -541,7 +543,7 @@ async function prepareShare(p){
   const key=shareKey(p);
   if(share.key===key&&(share.groups||share.busy))return;
   const groups=shareGroups(p),total=groups.reduce((n,g)=>n+g.items.length,0);
-  share={key,groups:null,busy:true,done:0,total,next:loadProgress(key)};
+  share={key,groups:null,busy:true,done:0,total,sent:{}};
   if(!total){share.groups=[];share.busy=false;updateShareState(p);return}
   const out=[];let failed=0;
   for(const g of groups){
@@ -557,44 +559,35 @@ async function prepareShare(p){
   }
   share.groups=out;share.failed=failed;share.busy=false;updateShareState(p);
 }
-/* Android share sheets often drop the text or the files when both go together, so:
-   step 1 = summary text; then one step per section (title picture + its files, max 10 per step). */
-function shareSteps(){const S=[{kind:"text"}];
-  for(const {g,files,card} of (share.groups||[])){
-    const per=card?9:10;
-    for(let i=0;i<files.length;i+=per){const part=files.slice(i,i+per);const n=Math.ceil(files.length/per);
-      S.push({kind:"files",files:card?[card,...part]:part,count:part.length,label:g.label+(n>1?` (part ${i/per+1}/${n})`:"")})}}
-  return S}
+/* Android share sheets on some phones drop the text or the files when both go together,
+   so the big button sends the summary only and each photo section has its own Send button. */
+function sectionChunks(entry){const per=entry.card?9:10,out=[];
+  for(let i=0;i<entry.files.length;i+=per){const part=entry.files.slice(i,i+per);out.push(entry.card?[entry.card,...part]:part)}return out}
 function updateShareState(p){
   const el=$("#wastate"),btn=$("#wa"); if(!el||route().id!==p.id||share.key!==shareKey(p))return;
-  if(share.busy){btn.disabled=true;btn.textContent=`Preparing files… ${share.done}/${share.total}`;el.textContent="Getting files ready.";return}
-  btn.disabled=false;const S=shareSteps();share.steps=S;share.next=share.next||0;
-  const fail=share.failed?` ${share.failed} file${share.failed>1?"s":""} couldn't load and will be skipped.`:"";
-  if(S.length===1){btn.textContent="Send on WhatsApp";el.textContent="Sends the summary.";return}
-  if(share.next>=S.length){btn.textContent="✓ All sent — start again";el.textContent=`Sent: summary + ${S.length-1} section${S.length>2?"s":""}.`;return}
-  const t=S[share.next];
-  btn.textContent=t.kind==="text"?`Step 1 of ${S.length}: send summary`:`Step ${share.next+1} of ${S.length}: ${t.label} (${t.count})`;
-  el.innerHTML=`<div>${share.next===0?"Tap, send to the chat, come back and tap again for each section. Choose the same chat each time.":"Back in the app — tap to send the next section to the same chat."}${esc(fail)}</div>
-    <div style="margin-top:4px">${S.map((x,i)=>`<span class="stp" data-i="${i}" style="cursor:pointer;${i<share.next?"text-decoration:line-through;opacity:.5":i===share.next?"font-weight:700;color:var(--navy2)":""}">${i===0?"Summary":esc(x.label)}</span>`).join(" → ")}</div><div style="margin-top:4px">Tap any step above to jump to it.</div>`;
-  el.querySelectorAll(".stp").forEach(x=>x.onclick=()=>{share.next=+x.dataset.i;saveProgress();updateShareState(p)});
+  btn.disabled=false;btn.textContent="Send summary on WhatsApp";
+  el.textContent=share.busy?`Preparing photos for sending… ${share.done}/${share.total}`:
+    (share.total?`Then send each photo section with its green Send button (in section 2).${share.failed?` ${share.failed} file(s) couldn't load.`:""}`:"");
+  document.querySelectorAll(".gsend").forEach(b=>{
+    const entry=(share.groups||[]).find(x=>x.g.label===b.dataset.label);
+    if(!entry){b.disabled=true;b.textContent=share.busy?"…":"—";return}
+    const chunks=sectionChunks(entry),k=(share.sent&&share.sent[b.dataset.label])||0;
+    b.disabled=false;b.textContent=chunks.length>1?(k>=chunks.length?"✓ Sent":`📤 Send ${k+1}/${chunks.length}`):(k?"✓ Send again":"📤 Send");
+    b.onclick=e=>{e.stopPropagation();sendSection(p,entry,b)};
+  });
+}
+async function sendSection(p,entry,b){
+  const chunks=sectionChunks(entry);share.sent=share.sent||{};let k=share.sent[entry.g.label]||0;if(k>=chunks.length)k=0;
+  const files=chunks[k];
+  if(!navigator.share||(navigator.canShare&&!navigator.canShare({files}))){toast("This phone can't share these files from the browser.",4000);return}
+  share.sent[entry.g.label]=k+1;updateShareState(p);
+  try{await navigator.share({files})}
+  catch(e){share.sent[entry.g.label]=k;updateShareState(p);if(e.name!=="AbortError")toast(`Couldn't share: ${e.name} — ${e.message}`,5000)}
 }
 async function sendWhatsApp(p){
   const text=summary(p);
-  const S=share.key===shareKey(p)&&share.groups?(share.steps||shareSteps()):[{kind:"text"}];
-  if((share.next||0)>=S.length)share.next=0;
-  const step=S[share.next||0];
-  const cur=share.next||0;
-  share.next=cur+1;saveProgress();updateShareState(p);   // move on now; WhatsApp may close the app
-  const done=()=>{};
-  const undo=()=>{share.next=cur;saveProgress();updateShareState(p)};
-  const showErr=(msg)=>{const el=$("#wastate");if(el)el.textContent=msg};
-  if(step.kind==="text"){
-    if(navigator.share){try{await navigator.share({text});done();return}catch(e){if(e.name==="AbortError")return undo()}}
-    window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");done();return;
-  }
-  if(!navigator.share||(navigator.canShare&&!navigator.canShare({files:step.files}))){undo();showErr("This browser can't share these files.");return}
-  try{await navigator.share({files:step.files});done()}
-  catch(e){undo();if(e.name==="AbortError")return;showErr(`Couldn't share the files: ${e.name} — ${e.message}`)}
+  if(navigator.share){try{await navigator.share({text});return}catch(e){if(e.name==="AbortError")return}}
+  window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");
 }
 
 /* ================= form ================= */
