@@ -535,11 +535,13 @@ async function titleCard(p,g){
   x.globalAlpha=.8;x.font="48px Arial, sans-serif";x.direction="rtl";x.fillText(p.name||"",540,345);
   return await new Promise(r=>c.toBlob(b=>r(new File([b],"0 - "+(g.label||"section").replace(/[\/:*?"<>|·]+/g," ").trim()+".jpg",{type:"image/jpeg"})),"image/jpeg",0.85));
 }
+function saveProgress(){try{localStorage.setItem("ortho_share",JSON.stringify({key:share.key,next:share.next,at:Date.now()}))}catch(e){}}
+function loadProgress(key){try{const o=JSON.parse(localStorage.getItem("ortho_share")||"null");if(o&&o.key===key&&Date.now()-o.at<3*3600e3)return o.next||0}catch(e){}return 0}
 async function prepareShare(p){
   const key=shareKey(p);
   if(share.key===key&&(share.groups||share.busy))return;
   const groups=shareGroups(p),total=groups.reduce((n,g)=>n+g.items.length,0);
-  share={key,groups:null,busy:true,done:0,total,next:0};
+  share={key,groups:null,busy:true,done:0,total,next:loadProgress(key)};
   if(!total){share.groups=[];share.busy=false;updateShareState(p);return}
   const out=[];let failed=0;
   for(const g of groups){
@@ -573,22 +575,26 @@ function updateShareState(p){
   const t=S[share.next];
   btn.textContent=t.kind==="text"?`Step 1 of ${S.length}: send summary`:`Step ${share.next+1} of ${S.length}: ${t.label} (${t.count})`;
   el.innerHTML=`<div>${share.next===0?"Tap, send to the chat, come back and tap again for each section. Choose the same chat each time.":"Back in the app — tap to send the next section to the same chat."}${esc(fail)}</div>
-    <div style="margin-top:4px">${S.map((x,i)=>`<span style="${i<share.next?"text-decoration:line-through;opacity:.5":i===share.next?"font-weight:700;color:var(--navy2)":""}">${i===0?"Summary":esc(x.label)}</span>`).join(" → ")}</div>`;
+    <div style="margin-top:4px">${S.map((x,i)=>`<span class="stp" data-i="${i}" style="cursor:pointer;${i<share.next?"text-decoration:line-through;opacity:.5":i===share.next?"font-weight:700;color:var(--navy2)":""}">${i===0?"Summary":esc(x.label)}</span>`).join(" → ")}</div><div style="margin-top:4px">Tap any step above to jump to it.</div>`;
+  el.querySelectorAll(".stp").forEach(x=>x.onclick=()=>{share.next=+x.dataset.i;saveProgress();updateShareState(p)});
 }
 async function sendWhatsApp(p){
   const text=summary(p);
   const S=share.key===shareKey(p)&&share.groups?(share.steps||shareSteps()):[{kind:"text"}];
   if((share.next||0)>=S.length)share.next=0;
   const step=S[share.next||0];
-  const done=()=>{share.next=(share.next||0)+1;updateShareState(p)};
+  const cur=share.next||0;
+  share.next=cur+1;saveProgress();updateShareState(p);   // move on now; WhatsApp may close the app
+  const done=()=>{};
+  const undo=()=>{share.next=cur;saveProgress();updateShareState(p)};
   const showErr=(msg)=>{const el=$("#wastate");if(el)el.textContent=msg};
   if(step.kind==="text"){
-    if(navigator.share){try{await navigator.share({text});done();return}catch(e){if(e.name==="AbortError")return}}
+    if(navigator.share){try{await navigator.share({text});done();return}catch(e){if(e.name==="AbortError")return undo()}}
     window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");done();return;
   }
-  if(!navigator.share||(navigator.canShare&&!navigator.canShare({files:step.files}))){showErr("This browser can't share these files.");return}
+  if(!navigator.share||(navigator.canShare&&!navigator.canShare({files:step.files}))){undo();showErr("This browser can't share these files.");return}
   try{await navigator.share({files:step.files});done()}
-  catch(e){if(e.name==="AbortError")return;showErr(`Couldn't share the files: ${e.name} — ${e.message}`)}
+  catch(e){undo();if(e.name==="AbortError")return;showErr(`Couldn't share the files: ${e.name} — ${e.message}`)}
 }
 
 /* ================= form ================= */
