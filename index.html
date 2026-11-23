@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<title>Ortho Unit</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --navy:#1f3a5f; --navy2:#2c5282; --bg:#f3f5f9; --line:#e2e7ef; --text:#1a202c; --muted:#6b7686; --red:#c53030;
+  --c-admitted:#2b6cb0; --c-operated:#6b46c1; --c-discharged:#2f855a; --c-waiting:#b7791f; --c-readmitted:#c53030;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+button,input,select,textarea{font:inherit}
+header{position:sticky;top:0;z-index:5;background:var(--navy);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 10px}
+header h1{margin:0;font-size:18px;font-weight:650;display:flex;align-items:center;gap:8px;flex:1}
+.bar{display:flex;align-items:center;gap:8px}
+.hbtn{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
+.back{background:transparent;border:0;color:#fff;font-size:24px;padding:0 6px 0 0;cursor:pointer}
+.wrap{max-width:720px;margin:0 auto;padding:12px 12px 110px}
+.search{width:100%;margin-top:10px;padding:10px 12px;border-radius:10px;border:0;font-size:15px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:13px;color:var(--text);cursor:pointer}
+.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.row2{display:flex;gap:8px;align-items:center;margin-top:8px}
+.row2 select{flex:1;padding:8px;border-radius:8px;border:1px solid var(--line);background:#fff}
+.count{font-size:12px;color:var(--muted)}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0;cursor:pointer;border-left:5px solid var(--navy)}
+.card .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.card .name{font-weight:650;font-size:16px}
+.card .dx{color:var(--muted);font-size:13px;margin-top:2px}
+.card .note{font-size:13px;margin-top:6px;white-space:pre-wrap}
+.badge{display:inline-block;color:#fff;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;white-space:nowrap}
+.due{font-size:12px;font-weight:600;margin-top:6px;display:inline-block;padding:2px 8px;border-radius:6px;background:#edf2f7;color:var(--muted)}
+.due.over{background:#fed7d7;color:var(--red)}
+.due.soon{background:#feebc8;color:#9c4221}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+.fab{position:fixed;right:18px;bottom:calc(22px + env(safe-area-inset-bottom));z-index:6;background:var(--navy);color:#fff;border:0;border-radius:999px;padding:14px 20px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+.sec{background:#fff;border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden}
+.sec h2{margin:0;font-size:14px;letter-spacing:.3px;text-transform:uppercase;color:#fff;background:var(--navy2);padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+.sec h2 button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;text-transform:none;letter-spacing:0}
+.sec .in{padding:10px 12px}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;font-size:14px}
+.kv .k{color:var(--muted)}
+.kv .v{white-space:pre-wrap;word-break:break-word}
+.status-now{border-radius:10px;padding:10px;color:#fff}
+.status-now .lbl{font-weight:700;font-size:16px}
+.status-now .meta{font-size:13px;opacity:.95;margin-top:2px}
+.status-now .txt{margin-top:6px;white-space:pre-wrap}
+.tl{margin:12px 0 0 6px;padding:0;list-style:none;border-left:2px solid var(--line)}
+.tl li{position:relative;padding:0 0 12px 14px;font-size:14px}
+.tl li::before{content:"";position:absolute;left:-7px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--dot,#999);border:2px solid #fff}
+.tl .t{font-weight:600}.tl .d{color:var(--muted);font-size:12px}.tl .n{white-space:pre-wrap}
+.tl .x{background:none;border:0;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;padding:0;margin-left:6px}
+.pgroup{margin-bottom:10px}
+.pgroup .gt{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.tile{position:relative;aspect-ratio:1;border-radius:8px;background:#e2e8f0;overflow:hidden;cursor:pointer}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;text-shadow:0 1px 4px #000}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{border:0;border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer;background:#e2e8f0;color:var(--text);text-decoration:none;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.pri{background:var(--navy);color:#fff}
+.btn.wa{background:#25d366;color:#fff;font-size:16px;padding:14px}
+.btn.wa[disabled]{background:#9ae6b4}
+.btn.danger{background:#fff;color:var(--red);border:1px solid #feb2b2}
+.btn.full{width:100%}
+label.f{display:block;margin:10px 0 4px;font-size:13px;font-weight:600;color:#2d3748}
+.inp{width:100%;padding:10px;border:1px solid #cbd5e0;border-radius:8px;background:#fff;font-size:15px}
+textarea.inp{min-height:64px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:12px;color:var(--muted);margin-top:3px}
+.stpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.stpick button{border:2px solid var(--line);background:#fff;border-radius:10px;padding:10px 6px;font-weight:600;cursor:pointer}
+.stpick button.on{color:#fff}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.modal .box{background:#fff;width:100%;max-width:560px;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+@media(min-width:600px){.modal{align-items:center}.modal .box{border-radius:16px}}
+.modal h3{margin:0 0 6px;font-size:17px}
+.viewer{position:fixed;inset:0;background:#000;z-index:30;display:flex;flex-direction:column}
+.viewer .media{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;color:#aaa}
+.viewer img,.viewer video{max-width:100%;max-height:100%;object-fit:contain}
+.viewer .vb{display:flex;justify-content:space-between;align-items:center;padding:10px;color:#fff;gap:8px;font-size:13px}
+.viewer .vb button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#1a202c;color:#fff;padding:10px 16px;border-radius:10px;z-index:40;font-size:14px;max-width:90vw;text-align:center}
+.notice{background:#fffaf0;border:1px solid #fbd38d;color:#7b341e;border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0}
+.small{font-size:12px;color:var(--muted)}
+.prog{height:6px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:6px}
+.prog div{height:100%;background:var(--navy2);width:0}
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<main class="wrap" id="main"><div class="empty">Loading…</div></main>
+<div id="layer"></div>
+
+<script>
+/* ================= constants ================= */
+const STATUSES = {
+  admitted:   {label:"Admitted",   color:"var(--c-admitted)",   date:"Admission date",  note:"What is delaying surgery / waiting for?", due:"Planned surgery date"},
+  operated:   {label:"Operated",   color:"var(--c-operated)",   date:"Surgery date",    note:"Operation done / post-op notes",          due:"Expected discharge"},
+  discharged: {label:"Discharged", color:"var(--c-discharged)", date:"Discharge date",  note:"Condition at discharge / follow-up plan",   due:"Next follow-up"},
+  waiting:    {label:"Waiting",    color:"var(--c-waiting)",    date:"Waiting since",   note:"Waiting for what? (e.g. plate removal after 1 year)", due:"Target date"},
+  readmitted: {label:"Readmitted", color:"var(--c-readmitted)", date:"Readmission date",note:"Reason (removal, debridement, infection…)", due:"Planned surgery date"}
+};
+const CATS = {skin:"Skin / wound", xray:"X-ray / CT / imaging", ticket:"Ticket / papers", other:"Other"};
+const CAT_ORDER = ["skin","xray","ticket","other"];
+
+/* Compression settings — as small as possible while X-rays stay readable */
+const IMG_MAX = 1400, IMG_Q = 0.7;          // photos
+const VID_MAX = 720, VID_FPS = 24, VID_BPS = 700000; // videos (~5 MB per minute)
+const THUMB = 220;
+
+/* ================= state ================= */
+let CFG = loadCfg();
+let patients = [], media = [], loaded = false, loadErr = "", lastLoad = 0;
+let filter = {q:"", status:"all", consultant:""};
+const thumbs = {};          // mediaId -> dataURL
+let shownForm = null;
+let installEvt = null;
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function today(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function fmt(d){if(!d)return"";const p=String(d).split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d}
+function daysTo(d){if(!d)return null;return Math.round((new Date(d+"T00:00:00")-new Date(today()+"T00:00:00"))/86400000)}
+function newId(){return "p"+Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function toast(m,ms){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),ms||2800)}
+function st(c){return STATUSES[c]||{label:c||"—",color:"#718096",date:"Date",note:"Notes",due:"Due date"}}
+function dueInfo(p){const n=daysTo(p.dueDate);if(n===null)return null;const L=st(p.status).due;
+  if(n<0)return{cls:"over",txt:`${L}: ${fmt(p.dueDate)} — overdue ${-n}d`};
+  if(n===0)return{cls:"over",txt:`${L}: today`};
+  if(n<=7)return{cls:"soon",txt:`${L}: ${fmt(p.dueDate)} — in ${n}d`};
+  return{cls:"",txt:`${L}: ${fmt(p.dueDate)}`}}
+function readmits(p){return (p.history||[]).filter(h=>h.status==="readmitted").length}
+function mediaOf(pid){return media.filter(m=>m.patientId===pid).sort((a,b)=>CAT_ORDER.indexOf(a.cat)-CAT_ORDER.indexOf(b.cat)||a.createdAt-b.createdAt)}
+function mb(n){return (n/1048576).toFixed(n<10485760?1:0)+" MB"}
+
+function loadCfg(){try{return JSON.parse(localStorage.getItem("ortho_cfg")||"null")}catch(e){return null}}
+function saveCfg(c){CFG=c;try{localStorage.setItem("ortho_cfg",JSON.stringify(c))}catch(e){}}
+
+/* ================= API ================= */
+async function api(action, payload){
+  const r = await fetch(CFG.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify(Object.assign({action,key:CFG.key,by:CFG.name},payload||{}))});
+  if(!r.ok) throw new Error("Server error "+r.status);
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error==="wrong-key"?"Wrong unit password":j.error);
+  return j.data;
+}
+async function refresh(silent){
+  try{
+    const d = await api("list");
+    patients = d.patients||[]; media = d.media||[]; loaded = true; loadErr=""; lastLoad=Date.now();
+    try{localStorage.setItem("ortho_cache",JSON.stringify({patients,media}))}catch(e){}
+  }catch(e){ loadErr = "Couldn't reach the server: "+e.message; loaded = true; if(!silent) toast(loadErr) }
+  render(true);
+}
+
+/* media files cache (Cache Storage) */
+async function mediaCache(){try{return await caches.open("ortho-media-v1")}catch(e){return null}}
+async function getBlob(m){
+  const c = await mediaCache(); const key = "/__media/"+m.fileId;
+  if(c){const hit = await c.match(key); if(hit) return await hit.blob();}
+  const d = await api("getFile",{fileId:m.fileId});
+  const bin = atob(d.b64); const u8 = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+  const blob = new Blob([u8],{type:d.mime||m.mime});
+  if(c){try{await c.put(key,new Response(blob))}catch(e){}}
+  return blob;
+}
+async function loadThumbs(pid){
+  const need = mediaOf(pid).filter(m=>!(m.id in thumbs)); if(!need.length) return;
+  try{const t = await api("thumbs",{patientId:pid}); Object.assign(thumbs,t);
+    need.forEach(m=>{if(!(m.id in thumbs))thumbs[m.id]=""});
+  }catch(e){}
+}
+
+/* ================= boot ================= */
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;render(true)});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+window.addEventListener("hashchange",()=>render());
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&CFG&&Date.now()-lastLoad>30000)refresh(true)});
+setInterval(()=>{if(!document.hidden&&CFG&&route().v==="list")refresh(true)},60000);
+
+(function boot(){
+  // setup link from a colleague:  #setup=<base64>
+  const m = location.hash.match(/^#setup=(.+)$/);
+  if(m){try{const s=JSON.parse(decodeURIComponent(escape(atob(m[1]))));window.__setup=s}catch(e){} history.replaceState(null,"",location.pathname)}
+  if(!CFG){ renderSetup(); return; }
+  try{const c=JSON.parse(localStorage.getItem("ortho_cache")||"null");if(c){patients=c.patients||[];media=c.media||[];loaded=true}}catch(e){}
+  render(); refresh(true);
+})();
+
+/* ================= setup screen ================= */
+function renderSetup(){
+  const s = window.__setup||CFG||{};
+  $("#hdr").innerHTML=`<div class="bar"><h1>🦴 Ortho Unit — setup</h1></div>`;
+  $("#main").innerHTML=`<div class="sec"><h2>Connect</h2><div class="in">
+    <label class="f">Server link</label><input class="inp" id="su" value="${esc(s.url||"")}" placeholder="https://script.google.com/macros/s/…/exec">
+    <label class="f">Unit password</label><input class="inp" id="sk" value="${esc(s.key||"")}">
+    <label class="f">Your name</label><input class="inp" id="sn" value="${esc((CFG&&CFG.name)||"")}" placeholder="Dr. …">
+    <div class="hint">Your name appears beside every change you make.</div>
+    <div class="actions"><button class="btn pri full" id="sgo">Connect</button></div>
+    <div id="smsg" class="small" style="margin-top:8px"></div></div></div>`;
+  $("#sgo").onclick=async()=>{
+    const c={url:$("#su").value.trim(),key:$("#sk").value.trim(),name:$("#sn").value.trim()};
+    if(!c.url||!c.key||!c.name){toast("Fill all three fields");return}
+    $("#smsg").textContent="Checking…"; const old=CFG; CFG=c;
+    try{await api("ping"); saveCfg(c); location.hash=""; render(); refresh();}
+    catch(e){CFG=old; $("#smsg").textContent="Couldn't connect: "+e.message}
+  };
+}
+function settingsModal(){
+  const link = location.origin+location.pathname+"#setup="+btoa(unescape(encodeURIComponent(JSON.stringify({url:CFG.url,key:CFG.key}))));
+  const b = modal(`<h3>Settings</h3>
+    <div class="small">Signed in as <b>${esc(CFG.name)}</b></div>
+    <label class="f">Invite a colleague</label>
+    <div class="hint">Send this link to a unit member. They open it, write their name, and install the app.</div>
+    <div class="actions"><a class="btn wa full" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent("Ortho Unit patient app — open this link, enter your name, then tap Install:\n"+link)}">Send invite on WhatsApp</a></div>
+    <div class="actions"><button class="btn full" id="chg">Change name / server</button></div>
+    <div class="actions"><button class="btn full" id="clr">Clear saved photos on this phone</button></div>
+    <div class="actions"><button class="btn full" id="cls">Close</button></div>`);
+  b.querySelector("#cls").onclick=closeModal;
+  b.querySelector("#chg").onclick=()=>{closeModal();renderSetup()};
+  b.querySelector("#clr").onclick=async()=>{try{await caches.delete("ortho-media-v1")}catch(e){} toast("Cleared")};
+}
+
+/* ================= routing ================= */
+function route(){const h=location.hash.slice(1);
+  if(h==="new")return{v:"form"};
+  if(h.startsWith("edit-"))return{v:"form",id:h.slice(5)};
+  if(h.startsWith("p-"))return{v:"detail",id:h.slice(2)};
+  return{v:"list"};}
+function go(h){location.hash=h}
+function render(fromData){
+  if(!CFG) return renderSetup();
+  const r=route();
+  if(r.v==="form"){
+    const ready=!r.id||patients.some(x=>x.id===r.id);
+    if(shownForm===location.hash&&$("#f"))return;
+    renderForm(r.id); if(ready&&$("#f"))shownForm=location.hash; return;
+  }
+  shownForm=null;
+  if(r.v==="detail") return renderDetail(r.id, fromData);
+  renderList();
+}
+
+/* ================= list ================= */
+function renderList(){
+  const hdr=$("#hdr");
+  if(!hdr.dataset.list){
+    hdr.dataset.list="1";
+    hdr.innerHTML=`<div class="bar"><h1>🦴 Ortho Unit</h1>
+      ${installEvt?`<button class="hbtn" id="inst">Install app</button>`:""}
+      <button class="hbtn" id="rf">⟳</button><button class="hbtn" id="set">⚙</button></div>
+      <input class="search" id="q" placeholder="Search name, diagnosis, file no…" value="${esc(filter.q)}">`;
+    $("#q").addEventListener("input",e=>{filter.q=e.target.value;renderList()});
+    $("#rf").onclick=()=>{toast("Refreshing…",1200);refresh()};
+    $("#set").onclick=settingsModal;
+    if($("#inst"))$("#inst").onclick=async()=>{installEvt.prompt();await installEvt.userChoice;installEvt=null;delete hdr.dataset.list;renderList()};
+  }
+  const main=$("#main");
+  if(!loaded){main.innerHTML=`<div class="empty">Loading…</div>`;return}
+  const consultants=[...new Set(patients.map(p=>(p.consultant||"").trim()).filter(Boolean))].sort();
+  const q=filter.q.trim().toLowerCase();
+  const list=patients.filter(p=>{
+    if(filter.status==="due"){const n=daysTo(p.dueDate);if(n===null||n>7)return false}
+    else if(filter.status!=="all"&&p.status!==filter.status)return false;
+    if(filter.consultant&&(p.consultant||"").trim()!==filter.consultant)return false;
+    if(q&&![p.name,p.diagnosis,p.procedure,p.fileNo,p.phone,p.consultant,p.statusNote].join(" ").toLowerCase().includes(q))return false;
+    return true;
+  }).sort((a,b)=>{const da=a.dueDate||"9999",dbb=b.dueDate||"9999";if(da!==dbb)return da<dbb?-1:1;return(b.updatedAt||0)-(a.updatedAt||0)});
+  const cnt={all:patients.length,due:patients.filter(p=>{const n=daysTo(p.dueDate);return n!==null&&n<=7}).length};
+  Object.keys(STATUSES).forEach(k=>cnt[k]=patients.filter(p=>p.status===k).length);
+  const chip=(k,l)=>`<button class="chip ${filter.status===k?"on":""}" data-s="${k}">${l} (${cnt[k]||0})</button>`;
+  let h=`${loadErr?`<div class="notice">${esc(loadErr)}</div>`:""}
+  <div class="chips">${chip("all","All")}${chip("due","⏰ Due ≤7d")}${Object.entries(STATUSES).map(([k,s])=>chip(k,s.label)).join("")}</div>
+  <div class="row2"><select id="cons"><option value="">All consultants</option>${consultants.map(c=>`<option ${filter.consultant===c?"selected":""}>${esc(c)}</option>`).join("")}</select>
+  <span class="count">${list.length} shown</span></div>`;
+  if(!list.length) h+=`<div class="empty">${patients.length?"No patients match.":"No patients yet.<br>Tap “+ New patient” to add the first one."}</div>`;
+  for(const p of list){
+    const s=st(p.status),d=dueInfo(p),rc=readmits(p),nm=mediaOf(p.id).length;
+    h+=`<div class="card" data-id="${esc(p.id)}" style="border-left-color:${s.color}">
+      <div class="top"><div><div class="name">${esc(p.name||"(no name)")}</div>
+      <div class="dx">${esc([p.age?p.age+"y":"",p.diagnosis].filter(Boolean).join(" · "))}</div></div>
+      <div style="text-align:right"><span class="badge" style="background:${s.color}">${esc(s.label)}</span>
+      <div class="small">${fmt(p.statusDate)}${rc>1?` · ×${rc}`:""}${nm?` · 📷${nm}`:""}</div></div></div>
+      ${p.statusNote?`<div class="note">${esc(p.statusNote)}</div>`:""}
+      ${d?`<div class="due ${d.cls}">${esc(d.txt)}</div>`:""}</div>`;
+  }
+  main.innerHTML=h;
+  main.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{filter.status=b.dataset.s;renderList()});
+  $("#cons").onchange=e=>{filter.consultant=e.target.value;renderList()};
+  main.querySelectorAll(".card").forEach(c=>c.onclick=()=>go("p-"+c.dataset.id));
+  if(!$("#fab")){const f=document.createElement("button");f.id="fab";f.className="fab";f.textContent="+ New patient";f.onclick=()=>go("new");document.body.appendChild(f)}
+}
+function clearFab(){const f=$("#fab");if(f)f.remove()}
+function subHeader(title,backTo){const hdr=$("#hdr");delete hdr.dataset.list;
+  hdr.innerHTML=`<div class="bar"><button class="back" id="bk">←</button><h1>${esc(title)}</h1></div>`;
+  $("#bk").onclick=()=>go(backTo||"")}
+
+/* ================= detail ================= */
+let share = {pid:null, files:null, busy:false, done:0, total:0};
+
+function renderDetail(id){
+  clearFab();
+  const p=patients.find(x=>x.id===id);
+  subHeader(p?p.name||"Patient":"Patient","");
+  const main=$("#main");
+  if(!p){main.innerHTML=`<div class="empty">${loaded?"Patient not found (maybe deleted).":"Loading…"}</div>`;return}
+  const s=st(p.status),d=dueInfo(p),ms=mediaOf(p.id);
+  const row=(k,v)=>v?`<div class="k">${k}</div><div class="v">${esc(v)}</div>`:"";
+  let ph="";
+  for(const k of CAT_ORDER){const g=ms.filter(m=>m.cat===k);if(!g.length)continue;
+    ph+=`<div class="pgroup"><div class="gt">${CATS[k]} (${g.length})</div><div class="grid">${g.map(m=>`<div class="tile" data-mid="${esc(m.id)}">${thumbs[m.id]?`<img src="${esc(thumbs[m.id])}" alt="">`:""}${m.kind==="video"?`<div class="play">▶</div>`:""}</div>`).join("")}</div></div>`}
+  if(!ph) ph=`<div class="small">No photos or videos yet.</div>`;
+  const hist=[...(p.history||[])].map((h,i)=>({...h,_i:i})).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);
+  main.innerHTML=`
+  <div class="sec"><h2>1 · Patient data <button id="edit">Edit</button></h2><div class="in"><div class="kv">
+    ${row("Age / Sex",[p.age?p.age+" y":"",p.sex].filter(Boolean).join(" · "))}
+    ${row("File no.",p.fileNo)}${row("Phone",p.phone)}${row("Consultant",p.consultant)}
+    ${row("Diagnosis",p.diagnosis)}${row("Procedure(s)",p.procedure)}
+    ${row("Medical Hx",p.medHx)}${row("Surgical Hx",p.surgHx)}${row("Notes",p.notes)}
+  </div></div></div>
+  <div class="sec"><h2>2 · Photos & videos <button id="addph">+ Add</button></h2><div class="in">${ph}</div></div>
+  <div class="sec"><h2>3 · Condition <button id="chst">Change</button></h2><div class="in">
+    <div class="status-now" style="background:${s.color}">
+      <div class="lbl">${esc(s.label)}${readmits(p)>1?` (×${readmits(p)})`:""}</div>
+      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div>
+      ${p.statusNote?`<div class="txt">${esc(p.statusNote)}</div>`:""}</div>
+    ${d?`<div class="due ${d.cls}" style="margin-top:8px">${esc(d.txt)}</div>`:""}
+    <div class="small" style="margin-top:12px;font-weight:600">History</div>
+    <ul class="tl">${hist.map(h=>{const hs=st(h.status);return`<li style="--dot:${hs.color}">
+      <span class="t">${esc(hs.label)}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
+      ${hist.length>1?`<button class="x" data-hi="${h._i}">remove</button>`:""}
+      ${h.note?`<div class="n">${esc(h.note)}</div>`:""}
+      ${h.dueDate?`<div class="d">${esc(hs.due)}: ${fmt(h.dueDate)}</div>`:""}</li>`}).join("")}</ul>
+  </div></div>
+  <div class="actions"><button class="btn wa full" id="wa">Send on WhatsApp</button></div>
+  <div class="small" id="wastate" style="margin:6px 2px"></div>
+  ${p.updatedAt?`<div class="small" style="margin:8px 2px">Last updated ${new Date(p.updatedAt).toLocaleString()}${p.updatedBy?" by "+esc(p.updatedBy):""}</div>`:""}
+  <div class="actions"><button class="btn danger" id="del">Delete patient</button></div>`;
+  $("#edit").onclick=()=>go("edit-"+p.id);
+  $("#chst").onclick=()=>statusModal(p);
+  $("#del").onclick=()=>deletePatient(p);
+  $("#addph").onclick=()=>uploadModal(p);
+  main.querySelectorAll(".tile").forEach(t=>t.onclick=()=>viewer(p,t.dataset.mid));
+  main.querySelectorAll(".x[data-hi]").forEach(b=>b.onclick=()=>removeHistory(p,+b.dataset.hi));
+  $("#wa").onclick=()=>sendWhatsApp(p);
+  // thumbnails, then prepare files for one-tap sharing
+  if(ms.some(m=>!(m.id in thumbs))) loadThumbs(p.id).then(()=>{if(route().id===p.id)renderDetail(p.id)});
+  prepareShare(p);
+  updateShareState(p);
+}
+
+function summary(p){
+  const s=st(p.status),L=[];
+  L.push(`*${p.name||"Patient"}*${p.age?` — ${p.age}y`:""}${p.sex?` ${p.sex}`:""}`);
+  if(p.fileNo)L.push(`File no: ${p.fileNo}`);
+  if(p.consultant)L.push(`Consultant: ${p.consultant}`);
+  if(p.diagnosis)L.push(`Dx: ${p.diagnosis}`);
+  if(p.procedure)L.push(`Procedure: ${p.procedure}`);
+  if(p.medHx)L.push(`Medical Hx: ${p.medHx}`);
+  if(p.surgHx)L.push(`Surgical Hx: ${p.surgHx}`);
+  L.push("",`*Condition: ${s.label}* (${s.date.toLowerCase()} ${fmt(p.statusDate)})`);
+  if(p.statusNote)L.push(p.statusNote);
+  if(p.dueDate)L.push(`${s.due}: ${fmt(p.dueDate)}`);
+  const hist=[...(p.history||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  if(hist.length>1){L.push("","*History*");hist.forEach(h=>L.push(`• ${fmt(h.date)} — ${st(h.status).label}${h.note?": "+h.note:""}`))}
+  if(p.notes)L.push("",`Notes: ${p.notes}`);
+  const ms=mediaOf(p.id);
+  if(ms.length){L.push("","*Attached*");CAT_ORDER.forEach(k=>{const n=ms.filter(m=>m.cat===k).length;if(n)L.push(`• ${CATS[k]}: ${n}`)})}
+  return L.join("\n");
+}
+
+function shareKey(p){return p.id+"|"+mediaOf(p.id).map(m=>m.id).join(",")}
+async function prepareShare(p){
+  const key=shareKey(p);
+  if(share.key===key&&(share.files||share.busy))return;
+  const ms=mediaOf(p.id);
+  share={key,files:null,busy:true,done:0,total:ms.length};
+  if(!ms.length){share.files=[];share.busy=false;updateShareState(p);return}
+  const files=[];const counter={};
+  try{
+    for(const m of ms){
+      const b=await getBlob(m); if(share.key!==key)return;
+      counter[m.cat]=(counter[m.cat]||0)+1;
+      const ext=(b.type||m.mime||"").includes("mp4")?"mp4":(b.type||m.mime||"").includes("webm")?"webm":(m.kind==="video"?"mp4":"jpg");
+      const nm=`${files.length+1} - ${CATS[m.cat].split(" /")[0]} ${counter[m.cat]}.${ext}`;
+      files.push(new File([b],nm,{type:b.type||m.mime}));
+      share.done++; updateShareState(p);
+    }
+    share.files=files;
+  }catch(e){share.err=e.message}
+  share.busy=false; updateShareState(p);
+}
+function updateShareState(p){
+  const el=$("#wastate"),btn=$("#wa"); if(!el||route().id!==p.id||share.key!==shareKey(p))return;
+  if(share.busy){btn.disabled=true;btn.textContent=`Preparing photos… ${share.done}/${share.total}`;el.textContent="Getting files ready so one tap sends everything.";}
+  else{btn.disabled=false;btn.textContent="Send on WhatsApp";
+    el.textContent=share.err?"Some files couldn't be loaded — tap to send the text, or try again.":(share.total?`Sends the summary + ${share.total} file${share.total>1?"s":""} in order: skin → X-ray/CT → ticket.`:"Sends the summary.");}
+}
+async function sendWhatsApp(p){
+  const text=summary(p);
+  const files=share.key===shareKey(p)?share.files:null;
+  if(files&&files.length&&navigator.canShare&&navigator.canShare({files})){
+    try{await navigator.share({text,files});return}
+    catch(e){if(e.name==="AbortError")return; if(e.name!=="NotAllowedError"){toast("Sharing failed: "+e.message)}}
+  }else if(!files||!files.length){
+    if(navigator.share){try{await navigator.share({text});return}catch(e){if(e.name==="AbortError")return}}
+  }
+  window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");
+  if(files&&files.length)toast("This phone can't attach files automatically — text sent only.");
+}
+
+/* ================= form ================= */
+function renderForm(id){
+  clearFab();
+  const p=id?patients.find(x=>x.id===id):null;
+  if(id&&!p){subHeader("Edit patient","");$("#main").innerHTML=`<div class="empty">${loaded?"Patient not found.":"Loading…"}</div>`;return}
+  subHeader(p?"Edit patient":"New patient",p?"p-"+p.id:"");
+  const v=k=>esc(p?p[k]||"":"");
+  $("#main").innerHTML=`<form id="f">
+  <div class="sec"><h2>1 · Patient data</h2><div class="in">
+    <label class="f">Name *</label><input class="inp" name="name" required value="${v("name")}">
+    <div class="two"><div><label class="f">Age</label><input class="inp" name="age" inputmode="numeric" value="${v("age")}"></div>
+    <div><label class="f">Sex</label><select class="inp" name="sex"><option value=""></option>${["Male","Female"].map(o=>`<option ${p&&p.sex===o?"selected":""}>${o}</option>`).join("")}</select></div></div>
+    <div class="two"><div><label class="f">File no.</label><input class="inp" name="fileNo" value="${v("fileNo")}"></div>
+    <div><label class="f">Phone</label><input class="inp" name="phone" inputmode="tel" value="${v("phone")}"></div></div>
+    <label class="f">Consultant</label><input class="inp" name="consultant" list="cl" value="${v("consultant")}">
+    <datalist id="cl">${[...new Set(patients.map(x=>x.consultant).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
+    <label class="f">Diagnosis</label><textarea class="inp" name="diagnosis" placeholder="e.g. Distal radius fracture (Rt)">${v("diagnosis")}</textarea>
+    <label class="f">Procedure(s)</label><textarea class="inp" name="procedure" placeholder="e.g. ORIF with plate & screws">${v("procedure")}</textarea>
+    <label class="f">Medical history</label><textarea class="inp" name="medHx" placeholder="DM, HTN…">${v("medHx")}</textarea>
+    <label class="f">Surgical history</label><textarea class="inp" name="surgHx">${v("surgHx")}</textarea>
+    <label class="f">Other notes</label><textarea class="inp" name="notes">${v("notes")}</textarea>
+  </div></div>
+  ${p?"":`<div class="sec"><h2>3 · Current condition</h2><div class="in" id="stbox"></div></div>
+  <div class="small" style="margin:0 2px 10px">Add photos and videos right after saving.</div>`}
+  <button class="btn pri full" type="submit" id="save">${p?"Save changes":"Save patient"}</button></form>`;
+  if(!p) statusFields($("#stbox"),{status:"admitted",date:today()});
+  $("#f").onsubmit=async e=>{
+    e.preventDefault();const fd=new FormData(e.target);const o={};
+    ["name","age","sex","fileNo","phone","consultant","diagnosis","procedure","medHx","surgHx","notes"].forEach(k=>o[k]=String(fd.get(k)||"").trim());
+    if(!o.name){toast("Name is required");return}
+    const btn=$("#save");btn.disabled=true;btn.textContent="Saving…";
+    const now=Date.now();
+    let np;
+    if(p){ np=Object.assign({},p,o,{updatedAt:now,updatedBy:CFG.name}); }
+    else{ const sv=readStatus($("#stbox"));
+      np=Object.assign({id:newId()},o,{status:sv.status,statusDate:sv.date,statusNote:sv.note,dueDate:sv.dueDate,
+        history:[{status:sv.status,date:sv.date,note:sv.note,dueDate:sv.dueDate,by:CFG.name,at:now}],
+        createdAt:now,createdBy:CFG.name,updatedAt:now,updatedBy:CFG.name}); }
+    try{ await savePatient(np); go("p-"+np.id); toast("Saved"); }
+    catch(err){btn.disabled=false;btn.textContent="Try again";toast(err.message)}
+  };
+}
+async function savePatient(np){
+  await api("savePatient",{patient:np});
+  const i=patients.findIndex(x=>x.id===np.id); if(i>=0)patients[i]=np; else patients.push(np);
+  try{localStorage.setItem("ortho_cache",JSON.stringify({patients,media}))}catch(e){}
+}
+
+/* ================= status ================= */
+function statusFields(box,cur){
+  let sel=cur.status||"admitted";
+  function draw(){const s=st(sel);
+    box.innerHTML=`<div class="stpick">${Object.entries(STATUSES).map(([k,x])=>`<button type="button" data-k="${k}" class="${k===sel?"on":""}" style="${k===sel?`background:${x.color};border-color:${x.color}`:`color:${x.color}`}">${x.label}</button>`).join("")}</div>
+    <label class="f">${esc(s.date)}</label><input class="inp" type="date" data-f="date" value="${esc(cur.date||today())}">
+    <label class="f">${esc(s.note)}</label><textarea class="inp" data-f="note">${esc(cur.note||"")}</textarea>
+    <label class="f">${esc(s.due)} <span class="small">(optional)</span></label><input class="inp" type="date" data-f="dueDate" value="${esc(cur.dueDate||"")}">
+    <div class="hint">The list is sorted by this date; amber 7 days before, red when overdue.</div>`;
+    box.dataset.status=sel;
+    box.querySelectorAll(".stpick button").forEach(b=>b.onclick=()=>{cur=readStatus(box);sel=b.dataset.k;draw()});}
+  draw();
+}
+function readStatus(box){return{status:box.dataset.status,date:box.querySelector('[data-f="date"]').value||today(),note:box.querySelector('[data-f="note"]').value.trim(),dueDate:box.querySelector('[data-f="dueDate"]').value||""}}
+
+/* ================= modals ================= */
+function modal(html){const l=$("#layer");l.innerHTML=`<div class="modal"><div class="box">${html}</div></div>`;
+  l.querySelector(".modal").addEventListener("click",e=>{if(e.target.classList.contains("modal")&&!l.dataset.lock)closeModal()});return l.querySelector(".box")}
+function closeModal(){const l=$("#layer");l.innerHTML="";delete l.dataset.lock}
+function confirmBox(title,text,ok){return new Promise(res=>{
+  const b=modal(`<h3>${esc(title)}</h3><div style="margin:6px 0 14px">${esc(text)}</div><div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok" style="background:var(--red)">${esc(ok)}</button></div>`);
+  b.querySelector("#cn").onclick=()=>{closeModal();res(false)};b.querySelector("#ok").onclick=()=>{closeModal();res(true)}})}
+
+function statusModal(p){
+  const b=modal(`<h3>Change condition — ${esc(p.name)}</h3><div class="small">A new entry is added to the history.</div><div id="sb"></div>
+  <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Save</button></div>`);
+  const box=b.querySelector("#sb");statusFields(box,{status:p.status,date:today()});
+  b.querySelector("#cn").onclick=closeModal;
+  b.querySelector("#ok").onclick=async e=>{
+    const sv=readStatus(box);e.target.disabled=true;e.target.textContent="Saving…";
+    const now=Date.now();const cur=patients.find(x=>x.id===p.id)||p;
+    const np=Object.assign({},cur,{status:sv.status,statusDate:sv.date,statusNote:sv.note,dueDate:sv.dueDate,
+      history:[...(cur.history||[]),{status:sv.status,date:sv.date,note:sv.note,dueDate:sv.dueDate,by:CFG.name,at:now}],updatedAt:now,updatedBy:CFG.name});
+    try{await savePatient(np);closeModal();toast("Condition updated");render()}
+    catch(err){e.target.disabled=false;e.target.textContent="Save";toast(err.message)}
+  };
+}
+function latestOf(h){if(!h.length)return null;return h.map((x,i)=>({x,i})).sort((a,b)=>(a.x.date||"").localeCompare(b.x.date||"")||(a.x.at||0)-(b.x.at||0)||a.i-b.i).pop().x}
+async function removeHistory(p,i){
+  const cur=patients.find(x=>x.id===p.id)||p;const hist=[...(cur.history||[])];const h=hist[i];if(!h)return;
+  if(!await confirmBox("Remove history entry?",`${st(h.status).label} on ${fmt(h.date)} will be removed.`,"Remove"))return;
+  hist.splice(i,1);const L=latestOf(hist);
+  const np=Object.assign({},cur,{history:hist,updatedAt:Date.now(),updatedBy:CFG.name});
+  if(L)Object.assign(np,{status:L.status,statusDate:L.date,statusNote:L.note||"",dueDate:L.dueDate||""});
+  try{await savePatient(np);render()}catch(err){toast(err.message)}
+}
+async function deletePatient(p){
+  if(!await confirmBox("Delete patient?",`${p.name} and all their photos and videos will be deleted for everyone in the unit.`,"Delete"))return;
+  toast("Deleting…",1500);
+  try{await api("deletePatient",{id:p.id});patients=patients.filter(x=>x.id!==p.id);media=media.filter(m=>m.patientId!==p.id);go("");toast("Deleted")}
+  catch(err){toast(err.message)}
+}
+
+/* ================= upload + compression ================= */
+function uploadModal(p){
+  const b=modal(`<h3>Add photos / videos — ${esc(p.name)}</h3>
+  <label class="f">Type</label><select class="inp" id="pc">${CAT_ORDER.map(k=>`<option value="${k}">${CATS[k]}</option>`).join("")}</select>
+  <label class="f">Files</label><input class="inp" type="file" id="pf" accept="image/*,video/*" multiple>
+  <div class="hint">Camera or gallery, several at once. Photos and videos are compressed to the smallest readable size before upload. Keep the screen on while videos are compressing.</div>
+  <div id="pp" class="small" style="margin-top:10px"></div><div class="prog"><div id="pb"></div></div>
+  <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Upload</button></div>`);
+  let cancelled=false;
+  b.querySelector("#cn").onclick=()=>{cancelled=true;closeModal()};
+  b.querySelector("#ok").onclick=async e=>{
+    const files=[...b.querySelector("#pf").files];if(!files.length){toast("Choose files first");return}
+    const cat=b.querySelector("#pc").value;e.target.disabled=true;$("#layer").dataset.lock="1";
+    const msg=t=>{const x=b.querySelector("#pp");if(x)x.textContent=t};
+    const bar=f=>{const x=b.querySelector("#pb");if(x)x.style.width=Math.round(f*100)+"%"};
+    let ok=0,saved=0;
+    for(let i=0;i<files.length&&!cancelled;i++){
+      const f=files[i];const tag=`${i+1}/${files.length}`;
+      try{
+        let r;
+        if(f.type.startsWith("video")){msg(`Compressing video ${tag}…`);r=await compressVideo(f,x=>{bar(x*0.8)});}
+        else{msg(`Compressing photo ${tag}…`);r=await compressImage(f);}
+        if(r.blob.size>35*1048576)throw new Error("still over 35 MB after compression — trim the video");
+        saved+=Math.max(0,f.size-r.blob.size);
+        msg(`Uploading ${tag} (${mb(r.blob.size)})…`);bar(.85);
+        const m=await api("upload",{patientId:p.id,patientName:p.name,cat,kind:r.kind,mime:r.blob.type,
+          name:`${CATS[cat].split(" /")[0]} ${today()} ${i+1}.${r.ext}`,b64:await toB64(r.blob),thumb:r.thumb||"",date:today()});
+        media.push(m);thumbs[m.id]=r.thumb||"";ok++;
+        try{const c=await mediaCache();if(c)await c.put("/__media/"+m.fileId,new Response(r.blob))}catch(_){}
+        bar(1);
+      }catch(err){toast(`File ${tag} failed: ${err.message}`,4000)}
+    }
+    closeModal();
+    if(ok)toast(`${ok} file${ok>1?"s":""} added · saved ${mb(saved)} by compressing`);
+    try{localStorage.setItem("ortho_cache",JSON.stringify({patients,media}))}catch(_){}
+    render();
+  };
+}
+function toB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(blob)})}
+function canvasThumb(src,w,h){const k=Math.min(1,THUMB/Math.max(w,h));const c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c.toDataURL("image/jpeg",0.6)}
+async function compressImage(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error("can't read image"));i.src=url});
+    let w=img.naturalWidth,h=img.naturalHeight;const k=Math.min(1,IMG_MAX/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);
+    const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,w,h);x.drawImage(img,0,0,w,h);
+    let blob=await new Promise(r=>c.toBlob(r,"image/jpeg",IMG_Q));
+    if(file.type==="image/jpeg"&&file.size<blob.size)blob=file;
+    return{blob,kind:"image",ext:"jpg",thumb:canvasThumb(img,img.naturalWidth,img.naturalHeight)};
+  }finally{URL.revokeObjectURL(url)}
+}
+async function compressVideo(file,onp){
+  const types=["video/mp4;codecs=avc1.42E01E","video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+  const mime=window.MediaRecorder&&types.find(t=>MediaRecorder.isTypeSupported(t));
+  const url=URL.createObjectURL(file);
+  const v=document.createElement("video");v.muted=true;v.playsInline=true;v.preload="auto";v.src=url;
+  try{
+    await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(new Error("can't read this video"))});
+    let thumb=null;try{thumb=canvasThumb(v,v.videoWidth,v.videoHeight)}catch(_){}
+    if(!mime||!HTMLCanvasElement.prototype.captureStream){return{blob:file,kind:"video",ext:file.type.includes("webm")?"webm":"mp4",thumb}}
+    let w=v.videoWidth,h=v.videoHeight;const k=Math.min(1,VID_MAX/Math.max(w,h));w=Math.round(w*k/2)*2;h=Math.round(h*k/2)*2;
+    const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");
+    const rec=new MediaRecorder(c.captureStream(VID_FPS),{mimeType:mime,videoBitsPerSecond:VID_BPS});
+    const chunks=[];rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+    const stopped=new Promise(r=>rec.onstop=r);
+    let done=false;
+    const draw=()=>{if(done)return;x.drawImage(v,0,0,w,h);if(v.duration)onp&&onp(v.currentTime/v.duration);
+      if(v.requestVideoFrameCallback)v.requestVideoFrameCallback(draw);else requestAnimationFrame(draw)};
+    const ended=new Promise(r=>v.onended=r);
+    x.drawImage(v,0,0,w,h);rec.start(1000);await v.play();draw();
+    await ended;done=true;x.drawImage(v,0,0,w,h);
+    await new Promise(r=>setTimeout(r,250));rec.stop();await stopped;
+    const type=mime.split(";")[0];const out=new Blob(chunks,{type});
+    if(!out.size||out.size>=file.size)return{blob:file,kind:"video",ext:file.type.includes("webm")?"webm":"mp4",thumb};
+    return{blob:out,kind:"video",ext:type.includes("mp4")?"mp4":"webm",thumb};
+  }finally{URL.revokeObjectURL(url)}
+}
+
+/* ================= viewer ================= */
+function viewer(p,mid){
+  const ms=mediaOf(p.id);let i=Math.max(0,ms.findIndex(m=>m.id===mid));const l=$("#layer");let objUrl=null;
+  async function draw(){
+    const m=ms[i];if(!m){l.innerHTML="";return}
+    if(objUrl){URL.revokeObjectURL(objUrl);objUrl=null}
+    l.innerHTML=`<div class="viewer"><div class="vb"><button id="vc">✕ Close</button><span>${esc(CATS[m.cat]||"")} · ${fmt(m.date)} · ${i+1}/${ms.length}</span><button id="vd">Delete</button></div>
+    <div class="media" id="vm">Loading…</div>
+    <div class="vb"><button id="vp" ${i===0?"disabled":""}>‹ Prev</button><span>${m.by?esc(m.by):""}${m.size?" · "+mb(m.size):""}</span><button id="vn" ${i>=ms.length-1?"disabled":""}>Next ›</button></div></div>`;
+    l.querySelector("#vc").onclick=()=>{if(objUrl)URL.revokeObjectURL(objUrl);l.innerHTML=""};
+    l.querySelector("#vp").onclick=()=>{if(i>0){i--;draw()}};
+    l.querySelector("#vn").onclick=()=>{if(i<ms.length-1){i++;draw()}};
+    l.querySelector("#vd").onclick=async()=>{
+      if(!await confirmBox("Delete this file?","It will be removed for everyone.","Delete"))return draw();
+      try{await api("deleteMedia",{id:m.id});media=media.filter(x=>x.id!==m.id);toast("Deleted");render()}catch(err){toast(err.message)}};
+    try{const b=await getBlob(m);if(ms[i]!==m||!l.querySelector("#vm"))return;objUrl=URL.createObjectURL(b);
+      l.querySelector("#vm").innerHTML=m.kind==="video"?`<video src="${objUrl}" controls playsinline autoplay></video>`:`<img src="${objUrl}" alt="">`;
+    }catch(err){const e=l.querySelector("#vm");if(e)e.textContent="Couldn't load: "+err.message}
+  }
+  draw();
+}
+</script>
+</body>
+</html>
