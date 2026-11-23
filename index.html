@@ -543,23 +543,39 @@ async function prepareShare(p){
   }catch(e){share.err=e.message}
   share.busy=false; updateShareState(p);
 }
+/* Chrome on Android shares at most 10 files / ~50 MB at once, so big patients go in parts */
+function makeBatches(files){const out=[];let cur=[],size=0;const MAXN=10,MAXB=45*1048576;
+  for(const f of files){if(cur.length&&(cur.length>=MAXN||size+f.size>MAXB)){out.push(cur);cur=[];size=0}cur.push(f);size+=f.size}
+  if(cur.length)out.push(cur);return out}
 function updateShareState(p){
   const el=$("#wastate"),btn=$("#wa"); if(!el||route().id!==p.id||share.key!==shareKey(p))return;
-  if(share.busy){btn.disabled=true;btn.textContent=`Preparing photos… ${share.done}/${share.total}`;el.textContent="Getting files ready so one tap sends everything.";}
-  else{btn.disabled=false;btn.textContent="Send on WhatsApp";
+  if(share.busy){btn.disabled=true;btn.textContent=`Preparing photos… ${share.done}/${share.total}`;el.textContent="Getting files ready so one tap sends everything.";return}
+  btn.disabled=false;
+  const B=share.files&&share.files.length?makeBatches(share.files):[];share.batches=B;share.next=share.next||0;
+  if(B.length>1){
+    if(share.next>=B.length){btn.textContent="✓ All sent — send again";el.textContent=`Sent in ${B.length} parts.`}
+    else{btn.textContent=share.next===0?`Send on WhatsApp (part 1 of ${B.length})`:`Send next photos (part ${share.next+1} of ${B.length})`;
+      el.textContent=share.next===0?`${share.total} files — WhatsApp from Chrome takes up to 10 at a time, so this goes in ${B.length} parts. Part 1 has the summary.`:`Go back to the app after each send and tap again for the next part.`}
+  }else{btn.textContent="Send on WhatsApp";
     el.textContent=share.err?"Some files couldn't be loaded — tap to send the text, or try again.":(share.total?`Sends the summary + ${share.total} file${share.total>1?"s":""} in order: skin → X-ray → CT → labs → ticket (old before new).`:"Sends the summary.");}
 }
 async function sendWhatsApp(p){
   const text=summary(p);
-  const files=share.key===shareKey(p)?share.files:null;
-  if(files&&files.length&&navigator.canShare&&navigator.canShare({files})){
-    try{await navigator.share({text,files});return}
-    catch(e){if(e.name==="AbortError")return; if(e.name!=="NotAllowedError"){toast("Sharing failed: "+e.message)}}
-  }else if(!files||!files.length){
-    if(navigator.share){try{await navigator.share({text});return}catch(e){if(e.name==="AbortError")return}}
-  }
+  const ready=share.key===shareKey(p)&&share.files;
+  if(ready&&share.files.length&&navigator.share){
+    const B=share.batches&&share.batches.length?share.batches:makeBatches(share.files);
+    if(share.next>=B.length)share.next=0;
+    const part=share.next,files=B[part];
+    const t=part===0?text:`${p.name||""} — photos part ${part+1} of ${B.length}`;
+    if(navigator.canShare&&!navigator.canShare({files})){toast("This browser can't attach these files — sending text only.",4000);}
+    else{
+      try{await navigator.share({text:t,files});share.next=part+1;updateShareState(p);return}
+      catch(e){if(e.name==="AbortError")return;
+        toast(`Couldn't attach the files (${e.name}). ${part===0?"Sending text only.":""}`,5000);
+        if(part>0)return;}
+    }
+  }else if(navigator.share){try{await navigator.share({text});return}catch(e){if(e.name==="AbortError")return}}
   window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");
-  if(files&&files.length)toast("This phone can't attach files automatically — text sent only.");
 }
 
 /* ================= form ================= */
