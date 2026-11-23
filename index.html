@@ -93,6 +93,10 @@ textarea.inp{min-height:64px;resize:vertical}
 .tile.sel{outline:3px solid var(--navy2);outline-offset:-3px}
 .tile.sel::after{content:'✓';position:absolute;top:4px;right:4px;background:var(--navy2);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:14px}
 .selbar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.08)}
+.ep{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px}
+.epb{margin-bottom:8px}
+.eph{font-weight:700;margin-bottom:4px}
+.addop{background:#faf5ff;color:var(--c-operated);border:1px dashed #d6bcfa;padding:8px 10px;margin:2px 0 10px;font-size:13px}
 .sugg{display:none;flex-wrap:wrap;gap:6px;margin-top:6px}
 .sugg button{border:1px solid #bee3f8;background:#ebf8ff;color:#2a4365;border-radius:999px;padding:6px 10px;font-size:13px;cursor:pointer}
 .addrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
@@ -188,6 +192,56 @@ function dueInfo(p){const dt=nextDateOf(p),n=daysTo(dt);if(n===null)return null;
   return{cls:"",txt:fmt(dt)}}
 function admissionNo(p,upto){let n=0;for(const h of sortedHist(p)){if(h.status==="admitted"||h.status==="readmitted")n++;if(h._i===upto._i)break}return n}
 const KIND={admitted:"adm",readmitted:"adm",operated:"op",discharged:"dis"}, KWORD={adm:"admission",op:"operation",dis:"discharge"};
+/* Course as episodes: Nth Admission → operations → Nth Discharge */
+function episodes(p){const eps=[];let cur=null;const mk=()=>({adm:{date:"",note:""},ops:[],dis:{date:"",note:""}});
+  for(const h of sortedHist(p)){const k=KIND[h.status];if(!k)continue;const ev={date:h.date||"",note:h.note||"",by:h.by||"",at:h.at};
+    if(k==="adm"){cur=mk();cur.adm=ev;eps.push(cur)}
+    else{if(!cur||cur.dis.date||cur.dis.note){cur=mk();eps.push(cur)} if(k==="op")cur.ops.push(ev);else cur.dis=ev}}
+  return eps}
+function hasEv(o){return !!(o&&((o.date||"").trim()||(o.note||"").trim()))}
+function historyFrom(eps){const out=[];let t=Date.now()-100000;
+  eps.forEach((e,i)=>{if(hasEv(e.adm))out.push({status:i===0?"admitted":"readmitted",date:e.adm.date,note:(e.adm.note||"").trim(),by:e.adm.by||CFG.name,at:t++});
+    e.ops.filter(hasEv).forEach(o=>out.push({status:"operated",date:o.date,note:(o.note||"").trim(),by:o.by||CFG.name,at:t++}));
+    if(hasEv(e.dis))out.push({status:"discharged",date:e.dis.date,note:(e.dis.note||"").trim(),by:e.dis.by||CFG.name,at:t++})});
+  return out}
+function evLabel(p,h){const k=KIND[h.status];if(!k)return st(h.status).label;let n=0;
+  for(const x of sortedHist(p)){if(KIND[x.status]===k)n++;if(x._i===h._i)break}
+  if(k==="adm")return `${ord(n)} Admission`;if(k==="dis")return `${ord(n)} Discharge`;
+  return kindCount(p,"op")>1?`${ord(n)} Operation`:"Operation"}
+function nowLabel(p){const h=sortedHist(p).filter(x=>KIND[x.status]).pop();return h?evLabel(p,h):st(p.status).label}
+function courseEditor(box,eps){
+  const blank=()=>({adm:{date:"",note:""},ops:[],dis:{date:"",note:""}});
+  const trail=()=>{const L=eps[eps.length-1];if(!L||hasEv(L.dis))eps.push(blank())};
+  const shape=()=>eps.map(e=>`${hasEv(e.adm)||e.ops.length?1:0}${hasEv(e.dis)?1:0}${e.ops.length}`).join("|");
+  const setP=(path,v)=>{const a=path.split(".");let o=eps;for(let i=0;i<a.length-1;i++)o=o[a[i]];o[a[a.length-1]]=v};
+  const blk=(color,title,path,o,ph,rm)=>`<div class="epb"><div class="eph" style="color:${color}">${title}${rm||""}</div>
+    <input class="inp" type="date" data-p="${path}.date" value="${esc(o.date||"")}">
+    <textarea class="inp" data-p="${path}.note" data-learn="note" placeholder="${ph}" style="margin-top:6px">${esc(o.note||"")}</textarea></div>`;
+  let drawn="";
+  function draw(){trail();drawn=shape();
+    box.innerHTML=eps.map((e,i)=>{const n=ord(i+1),open=hasEv(e.adm)||e.ops.length||hasEv(e.dis),last=i===eps.length-1;
+      return `<div class="ep">${blk("var(--c-admitted)",`${n} Admission`,`${i}.adm`,e.adm,"Notes (e.g. bad skin, waiting for…)",
+          (!last||open)?` <button type="button" class="x" data-rm="${i}">remove</button>`:"")}
+        ${open?e.ops.map((o,j)=>blk("var(--c-operated)",e.ops.length>1?`Operation ${j+1}`:"Operation",`${i}.ops.${j}`,o,"What was done (Ex Fx, ORIF…)",` <button type="button" class="x" data-rop="${i}.${j}">remove</button>`)).join("")+
+          `<button type="button" class="btn addop" data-op="${i}">+ Operation</button>`+
+          blk("var(--c-discharged)",`${n} Discharge`,`${i}.dis`,e.dis,"Condition at discharge"):""}</div>`}).join("");
+    box.querySelectorAll("[data-p]").forEach(el=>{
+      el.addEventListener("input",()=>setP(el.dataset.p,el.value));
+      el.addEventListener("change",()=>{setP(el.dataset.p,el.value);trail();if(shape()!==drawn)draw()});});
+    box.querySelectorAll("[data-op]").forEach(b=>b.onclick=()=>{eps[+b.dataset.op].ops.push({date:"",note:""});draw()});
+    box.querySelectorAll("[data-rop]").forEach(b=>b.onclick=()=>{const [i,j]=b.dataset.rop.split(".").map(Number);eps[i].ops.splice(j,1);draw()});
+    box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=async()=>{const i=+b.dataset.rm;eps.splice(i,1);draw()});
+    attachLearn(box);}
+  draw();
+  return ()=>{const clean=eps.map(e=>({adm:e.adm,ops:e.ops.filter(hasEv),dis:e.dis})).filter(e=>hasEv(e.adm)||e.ops.length||hasEv(e.dis));
+    for(let i=0;i<clean.length;i++){const e=clean[i],n=ord(i+1);
+      if(hasEv(e.adm)&&!e.adm.date)return{err:`Add the date of the ${n} Admission`};
+      for(const o of e.ops)if(!o.date)return{err:`Add the date of the operation in the ${n} admission`};
+      if(hasEv(e.dis)&&!e.dis.date)return{err:`Add the date of the ${n} Discharge`};}
+    return{eps:clean}};
+}
+function applyCourse(np,eps){const h=historyFrom(eps);np.history=h;const L=h[h.length-1];
+  if(L){np.status=L.status;np.statusDate=L.date;np.statusNote=L.note}else{np.status="";np.statusDate="";np.statusNote=""}return np}
 function kindCount(p,k){return (p.history||[]).filter(h=>KIND[h.status]===k).length}
 /* "2nd discharge" etc. — shown when that kind happened more than once */
 function stepTag(p,h,short){const k=KIND[h.status];if(!k)return"";const total=kindCount(p,k);if(total<2)return"";
@@ -328,17 +382,17 @@ function renderList(){
   const list=patients.filter(p=>{
     if(filter.status==="due"){const n=daysTo(nextDateOf(p));if(n===null||n>7)return false}
     else if(filter.status==="wait"){if(!nextStepOf(p)&&!nextDateOf(p))return false}
-    else if(filter.status!=="all"&&p.status!==filter.status)return false;
+    else if(filter.status!=="all"&&(p.status==="readmitted"?"admitted":p.status)!==filter.status)return false;
     if(filter.consultant&&(p.consultant||"").trim()!==filter.consultant)return false;
     if(q&&![p.name,p.diagnosis,p.mot,p.procedure,p.fileNo,p.phone,p.consultant,p.statusNote].join(" ").toLowerCase().includes(q))return false;
     return true;
   }).sort((a,b)=>{const da=nextDateOf(a)||"9999",dbb=nextDateOf(b)||"9999";if(da!==dbb)return da<dbb?-1:1;return(b.updatedAt||0)-(a.updatedAt||0)});
   const cnt={all:patients.length,due:patients.filter(p=>{const n=daysTo(nextDateOf(p));return n!==null&&n<=7}).length,
     wait:patients.filter(p=>nextStepOf(p)||nextDateOf(p)).length};
-  PICK.forEach(k=>cnt[k]=patients.filter(p=>p.status===k).length);
+  PICK.forEach(k=>cnt[k]=patients.filter(p=>(p.status==="readmitted"?"admitted":p.status)===k).length);
   const chip=(k,l)=>`<button class="chip ${filter.status===k?"on":""}" data-s="${k}">${l} (${cnt[k]||0})</button>`;
   let h=`${loadErr?`<div class="notice">${esc(loadErr)}</div>`:""}
-  <div class="chips">${chip("all","All")}${chip("due","⏰ Due ≤7d")}${chip("wait","⏳ Waiting")}${PICK.map(k=>chip(k,STATUSES[k].label)).join("")}</div>
+  <div class="chips">${chip("all","All")}${chip("due","⏰ Due ≤7d")}${chip("wait","⏳ Waiting")}${chip("admitted","In hospital")}${chip("operated","Operated")}${chip("discharged","Discharged")}</div>
   <div class="row2"><select id="cons"><option value="">All consultants</option>${consultants.map(c=>`<option ${filter.consultant===c?"selected":""}>${esc(c)}</option>`).join("")}</select>
   <span class="count">${list.length} shown</span></div>`;
   if(!list.length) h+=`<div class="empty">${patients.length?"No patients match.":"No patients yet.<br>Tap “+ New patient” to add the first one."}</div>`;
@@ -347,7 +401,7 @@ function renderList(){
     h+=`<div class="card" data-id="${esc(p.id)}" style="border-left-color:${s.color}">
       <div class="top"><div><div class="name">${esc(p.name||"(no name)")}</div>
       <div class="dx">${esc([p.age?p.age+" سنة":"",(p.diagnosis||"").split("\n")[0]].filter(Boolean).join(" · "))}</div></div>
-      <div style="text-align:right"><span class="badge" style="background:${s.color}">${esc(s.label)}</span>
+      <div style="text-align:right"><span class="badge" style="background:${s.color}">${esc(nowLabel(p))}</span>
       <div class="small">${fmt(p.statusDate)}${rc>1?` · ${ord(rc)} adm.`:""}${nm?` · 📷${nm}`:""}</div></div></div>
       ${p.status!=="waiting"&&p.statusNote?`<div class="note">${esc(p.statusNote)}</div>`:""}
       ${nextStepOf(p)||d?`<div class="due ${d?d.cls:""}">⏳ ${esc(nextStepOf(p)||"Waiting")}${d?" — "+esc(d.txt):""}</div>`:""}</div>`;
@@ -391,14 +445,13 @@ function renderDetail(id){
     ${sel.pid===p.id?`<div class="selbar"><b id="selc">${sel.ids.size} selected</b><button class="btn pri" id="selmv">Move to section</button><button class="btn danger" id="seldel">Delete</button><button class="btn" id="selx">Cancel</button></div>`:`
     ${addButtons(false)}
     <div class="hint">Camera or gallery, several at once. Old asks for the date of the film. To move several photos, tap Select.</div>`}</div></div>
-  <div class="sec"><h2>3 · Course <button id="chst">+ Add step</button></h2><div class="in">
+  <div class="sec"><h2>3 · Course <button id="chst">Edit course</button></h2><div class="in">
     <div class="status-now" style="background:${s.color}">
-      <div class="lbl">Now: ${esc(s.label)}${(p.status==="admitted"||p.status==="readmitted")&&readmits(p)>1?` (${ord(readmits(p))} admission)`:""}</div>
-      <div class="meta">${esc(s.date)}: ${fmt(p.statusDate)||"—"}</div>
+      <div class="lbl">Now: ${esc(nowLabel(p))}</div>
+      <div class="meta">${fmt(p.statusDate)||"—"}</div>
       ${nextStepOf(p)||nextDateOf(p)?`<div class="txt" style="margin-top:8px;font-weight:600">⏳ Waiting for: ${esc(nextStepOf(p)||"—")}${nextDateOf(p)?" — "+fmt(nextDateOf(p)):""}</div>`:""}</div>
     <ul class="tl">${hist.map(h=>{const hs=st(h.status);return`<li style="--dot:${hs.color}">
-      <span class="t">${esc(hs.label)}${stepTag(p,h)}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
-      ${hist.length>1?`<button class="x" data-hi="${h._i}">remove</button>`:""}
+      <span class="t">${esc(evLabel(p,h))}</span> <span class="d">${fmt(h.date)}${h.by?" · "+esc(h.by):""}</span>
       ${h.note?`<div class="n">${esc(h.note)}</div>`:""}</li>`}).join("")}</ul>
   </div></div>
   <div class="sec"><h2>4 · Waiting for <button id="edw">Edit</button></h2><div class="in">
@@ -459,8 +512,8 @@ function summary(p){
   L.push(SEP);
   L.push("> Course");
   sortedHist(p).filter(h=>h.status!=="waiting").forEach(h=>{
-    L.push(`• ${fmt(h.date)} — ${st(h.status).label}${stepTag(p,h,true)}${h.note?": "+h.note:""}`)});
-  L.push(`Now: ${s.label}`);
+    L.push(`• ${fmt(h.date)} — ${evLabel(p,h)}${h.note?": "+h.note:""}`)});
+  L.push(`Now: ${nowLabel(p)}`);
   if(nextStepOf(p)||nextDateOf(p)){L.push(SEP);L.push("> Waiting for");L.push(`${nextStepOf(p)||"—"}${nextDateOf(p)?` — ${fmt(nextDateOf(p))}`:""}`)}
   if(p.consultant||p.fileNo||p.notes||p.phone){L.push(SEP);
     if(p.phone)sec("Phone",p.phone);
@@ -540,11 +593,12 @@ function renderForm(id){
     ${addButtons(true)}
     <div class="picked" id="picked"></div>
     <div class="hint">They upload right after you tap Save.</div></div></div>
-  <div class="sec"><h2>3 · Course — first step</h2><div class="in" id="stbox"></div></div>
+  <div class="sec"><h2>3 · Course</h2><div class="in" id="stbox"></div></div>
   <div class="sec"><h2>4 · Waiting for <span style="text-transform:none;font-weight:400">(optional)</span></h2><div class="in">${waitingFields("","")}</div></div>`}
   <button class="btn pri full" type="submit" id="save">${p?"Save changes":"Save patient"}</button></form>`;
   attachLearn($("#f"));
-  if(!p){ statusFields($("#stbox"),{status:"admitted",date:today()});
+  let getCourse=null;
+  if(!p){ getCourse=courseEditor($("#stbox"),[{adm:{date:today(),note:""},ops:[],dis:{date:"",note:""}}]);
     const showPicked=()=>{const c={};pending.forEach(x=>{const l=catLabel(x.cat);c[l]=(c[l]||0)+1});$("#picked").textContent=pending.length?Object.entries(c).map(([l,n])=>`${l}: ${n}`).join(" · ")+"  ✓":""};
     document.querySelectorAll("#f .addcat").forEach(b=>b.onclick=()=>chooseCat(b,(cat,date)=>pickFiles(files=>{pending=pending.concat(files.map(f=>({file:f,cat,date})));showPicked()}))); }
   $("#f").onsubmit=async e=>{
@@ -555,11 +609,9 @@ function renderForm(id){
     const now=Date.now();
     let np;
     if(p){ np=Object.assign({},p,o,{updatedAt:now,updatedBy:CFG.name}); }
-    else{ const sv=readStatus($("#stbox"));
-      np=Object.assign({id:newId()},o,{status:sv.status,statusDate:sv.date,statusNote:sv.note,
-        nextStep:$("#nstep").value.trim(),nextDate:$("#ndate").value||"",
-        history:[{status:sv.status,date:sv.date,note:sv.note,by:CFG.name,at:now}],
-        createdAt:now,createdBy:CFG.name,updatedAt:now,updatedBy:CFG.name}); }
+    else{ const c=getCourse();if(c.err){btn.disabled=false;btn.textContent="Save patient";toast(c.err);return}
+      np=applyCourse(Object.assign({id:newId()},o,{nextStep:$("#nstep").value.trim(),nextDate:$("#ndate").value||"",
+        createdAt:now,createdBy:CFG.name,updatedAt:now,updatedBy:CFG.name}),c.eps); }
     try{ await savePatient(np); go("p-"+np.id); toast("Saved"); if(pending.length) uploadFiles(np,pending); }
     catch(err){btn.disabled=false;btn.textContent="Try again";toast(err.message)}
   };
@@ -634,19 +686,20 @@ function confirmBox(title,text,ok){return new Promise(res=>{
   b.querySelector("#cn").onclick=()=>{closeModal();res(false)};b.querySelector("#ok").onclick=()=>{closeModal();res(true)}})}
 
 function statusModal(p){
-  const b=modal(`<h3>Add step — ${esc(p.name)}</h3><div class="small">Added to the course in date order.</div><div id="sb"></div>
-  <div class="small" style="margin-top:14px;font-weight:600">Still waiting for… (update or clear)</div>${waitingFields(nextStepOf(p),nextDateOf(p))}
+  const cur0=patients.find(x=>x.id===p.id)||p;
+  const b=modal(`<h3>Course — ${esc(p.name)}</h3><div class="small">Fill in order. After a discharge, the next admission appears.</div>
+  <div id="sb" style="margin-top:10px"></div>
+  <div class="small" style="margin-top:6px;font-weight:600">Waiting for… (update or clear)</div>${waitingFields(nextStepOf(cur0),nextDateOf(cur0))}
   <div class="actions"><button class="btn" id="cn">Cancel</button><button class="btn pri" id="ok">Save</button></div>`);
-  const nextOf={admitted:"operated",operated:"discharged",discharged:"readmitted",readmitted:"operated"};
-  const box=b.querySelector("#sb");statusFields(box,{status:nextOf[p.status]||"admitted",date:today(),counts:{adm:kindCount(p,"adm"),op:kindCount(p,"op"),dis:kindCount(p,"dis")}});attachLearn(b);
+  const get=courseEditor(b.querySelector("#sb"),episodes(cur0));attachLearn(b);
   b.querySelector("#cn").onclick=closeModal;
   b.querySelector("#ok").onclick=async e=>{
-    const sv=readStatus(box);rememberForm(b);e.target.disabled=true;e.target.textContent="Saving…";
-    const now=Date.now();const cur=patients.find(x=>x.id===p.id)||p;
-    const np=Object.assign({},cur,{status:sv.status,statusDate:sv.date,statusNote:sv.note,
-      nextStep:b.querySelector("#nstep").value.trim(),nextDate:b.querySelector("#ndate").value||"",
-      history:[...(cur.history||[]),{status:sv.status,date:sv.date,note:sv.note,by:CFG.name,at:now}],updatedAt:now,updatedBy:CFG.name});
-    try{await savePatient(np);closeModal();toast("Condition updated");render()}
+    const c=get();if(c.err)return toast(c.err);
+    rememberForm(b);e.target.disabled=true;e.target.textContent="Saving…";
+    const cur=patients.find(x=>x.id===p.id)||p;
+    const np=applyCourse(Object.assign({},cur,{nextStep:b.querySelector("#nstep").value.trim(),nextDate:b.querySelector("#ndate").value||"",
+      updatedAt:Date.now(),updatedBy:CFG.name}),c.eps);
+    try{await savePatient(np);closeModal();toast("Course saved");render()}
     catch(err){e.target.disabled=false;e.target.textContent="Save";toast(err.message)}
   };
 }
